@@ -1,23 +1,18 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { EXERCISE_CATEGORIES, addWorkoutTemplate, getExercises, getWorkoutTemplate, updateWorkoutTemplate } from '../db'
-import { CATEGORY_LABELS, TIMER_MODE_LABELS } from '../lib/categories'
-import {
-  iconButtonClass,
-  inputClass,
-  labelClass,
-  primaryButtonClass,
-  secondaryButtonClass,
-} from '../lib/ui'
+import { CATEGORY_LABELS } from '../lib/categories'
+import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui'
+import ExerciseListItem from './ExerciseListItem'
 import ExercisePicker from './ExercisePicker'
 
-function defaultTemplateDraft() {
+function defaultTemplateDraft(exerciseIds = []) {
   return {
     name: '',
     category: EXERCISE_CATEGORIES[0],
     tags: [],
     sessionTargetSeconds: null,
-    exerciseIds: [],
+    exerciseIds,
     archived: false,
   }
 }
@@ -86,46 +81,10 @@ function TagInput({ tags, onChange }) {
   )
 }
 
-function ExerciseListItem({ exercise, index, count, onMoveUp, onMoveDown, onRemove }) {
-  return (
-    <li className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800">
-      <div>
-        <p className="text-sm font-medium">{exercise ? exercise.name : 'Unknown exercise'}</p>
-        {exercise && (
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            {TIMER_MODE_LABELS[exercise.timerMode]}
-          </p>
-        )}
-      </div>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className={iconButtonClass}
-          onClick={onMoveUp}
-          disabled={index === 0}
-          aria-label="Move up"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          className={iconButtonClass}
-          onClick={onMoveDown}
-          disabled={index === count - 1}
-          aria-label="Move down"
-        >
-          ↓
-        </button>
-        <button type="button" className={iconButtonClass} onClick={onRemove} aria-label="Remove">
-          ✕
-        </button>
-      </div>
-    </li>
+export default function TemplateEditor({ editingId, initialExerciseIds = [], onClose }) {
+  const [draft, setDraft] = useState(
+    editingId === 'new' ? defaultTemplateDraft(initialExerciseIds) : null,
   )
-}
-
-export default function TemplateEditor({ editingId, onClose }) {
-  const [draft, setDraft] = useState(editingId === 'new' ? defaultTemplateDraft() : null)
   const exercises = useLiveQuery(() => getExercises(), [])
   const exercisesById = useMemo(
     () => new Map((exercises ?? []).map((ex) => [ex.id, ex])),
@@ -184,7 +143,7 @@ export default function TemplateEditor({ editingId, onClose }) {
     } else {
       await updateWorkoutTemplate(editingId, payload)
     }
-    onClose()
+    onClose(true)
   }
 
   return (
@@ -193,7 +152,7 @@ export default function TemplateEditor({ editingId, onClose }) {
         <h2 className="text-lg font-semibold">
           {editingId === 'new' ? 'New Template' : 'Edit Template'}
         </h2>
-        <button type="button" onClick={onClose} className={secondaryButtonClass}>
+        <button type="button" onClick={() => onClose(false)} className={secondaryButtonClass}>
           Cancel
         </button>
       </header>
