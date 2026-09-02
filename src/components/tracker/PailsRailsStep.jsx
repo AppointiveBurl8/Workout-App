@@ -98,24 +98,24 @@ export default function PailsRailsStep({ exercise, paused, onComplete }) {
   const activeSide = state.side === 'left_right' ? (state.round % 2 === 1 ? 'left' : 'right') : null
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-      <p className="text-lg font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
+      <p className="text-xl font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
         {PHASE_LABELS[state.phase]}
       </p>
       {activeSide && (
-        <p className="-mt-2 text-sm font-medium text-neutral-600 dark:text-neutral-300">
+        <p className="-mt-4 text-base font-medium text-neutral-600 dark:text-neutral-300">
           {activeSide === 'left' ? 'Left side' : 'Right side'}
         </p>
       )}
-      <p className="text-6xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
       <div className="w-full max-w-xs">
         <ProgressBar value={1 - state.remainingSeconds / phaseTotal} colorClassName="bg-emerald-600" />
       </div>
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+      <p className="text-base text-neutral-500 dark:text-neutral-400">
         Round {state.round} of {state.rounds}
       </p>
 
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap justify-center gap-3">
         <AdjustableChip
           label="Ramp"
           value={state.rampSeconds}

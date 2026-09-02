@@ -25,14 +25,14 @@ function summarize(exercise) {
 
 function TransitionScreen({ nextExercise, remainingSeconds, paused, onTogglePause, onSkip }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-      <p className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+    <div className="flex flex-1 flex-col items-center justify-center gap-5 p-6 text-center">
+      <p className="text-base font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         Up Next
       </p>
-      <p className="text-2xl font-semibold">{nextExercise.name}</p>
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">{summarize(nextExercise)}</p>
-      <p className="text-6xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
-      <div className="flex gap-3">
+      <p className="text-3xl font-semibold">{nextExercise.name}</p>
+      <p className="text-base text-neutral-500 dark:text-neutral-400">{summarize(nextExercise)}</p>
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
+      <div className="flex flex-col gap-3 sm:flex-row">
         <button type="button" className={secondaryButtonClass} onClick={onTogglePause}>
           {paused ? 'Resume' : 'Pause'}
         </button>
@@ -48,14 +48,14 @@ function OpenWorkFallbackStep({ exercise, paused, onComplete }) {
   const [elapsed, setElapsed] = useState(0)
   useInterval(() => setElapsed((s) => s + 1), paused ? null : 1000)
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-      <p className="text-lg font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
+      <p className="text-xl font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
         Open Work
       </p>
       {exercise.openWork?.repsLabel && (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">{exercise.openWork.repsLabel}</p>
+        <p className="text-base text-neutral-500 dark:text-neutral-400">{exercise.openWork.repsLabel}</p>
       )}
-      <p className="text-6xl font-bold tabular-nums">{formatMMSS(elapsed)}</p>
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(elapsed)}</p>
       <button type="button" className={primaryButtonClass} onClick={onComplete}>
         Done, next exercise
       </button>
@@ -126,7 +126,7 @@ export default function SteppedSession({ steps, onEnd }) {
         />
       ) : (
         <>
-          <p className="px-6 pt-4 text-center text-lg font-medium">{currentExercise.name}</p>
+          <p className="px-6 pt-4 text-center text-xl font-medium">{currentExercise.name}</p>
 
           {currentExercise.timerMode === 'interval' && (
             <IntervalStep

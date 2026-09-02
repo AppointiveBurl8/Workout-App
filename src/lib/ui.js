@@ -4,13 +4,13 @@ export const inputClass =
 export const labelClass = 'block text-sm font-medium text-neutral-700 dark:text-neutral-300'
 
 export const primaryButtonClass =
-  'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50'
+  'min-h-11 rounded-md bg-indigo-600 px-5 py-3 text-base font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50'
 
 export const secondaryButtonClass =
-  'rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
+  'min-h-11 rounded-md border border-neutral-300 px-5 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
 
 export const dangerButtonClass =
-  'rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950'
+  'min-h-11 rounded-md border border-red-300 px-5 py-3 text-base font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950'
 
 export const iconButtonClass =
-  'rounded-md border border-neutral-300 px-2 py-1 text-sm text-neutral-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-30 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
+  'min-h-11 rounded-md border border-neutral-300 px-4 py-3 text-base text-neutral-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-30 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'

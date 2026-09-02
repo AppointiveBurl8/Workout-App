@@ -70,9 +70,9 @@ export default function IntervalStep({ exercise, paused, onComplete }) {
   const phaseTotal = state.phase === 'work' ? state.workSeconds : state.restSeconds
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
       <p
-        className={`text-lg font-semibold uppercase tracking-wide ${
+        className={`text-xl font-semibold uppercase tracking-wide ${
           state.phase === 'work'
             ? 'text-indigo-600 dark:text-indigo-400'
             : 'text-emerald-600 dark:text-emerald-400'
@@ -80,15 +80,15 @@ export default function IntervalStep({ exercise, paused, onComplete }) {
       >
         {state.phase === 'work' ? 'Work' : 'Rest'}
       </p>
-      <p className="text-6xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
       <div className="w-full max-w-xs">
         <ProgressBar value={1 - state.remainingSeconds / phaseTotal} />
       </div>
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+      <p className="text-base text-neutral-500 dark:text-neutral-400">
         Round {state.round} of {state.rounds}
       </p>
 
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap justify-center gap-3">
         <AdjustableChip
           label="Work"
           value={state.workSeconds}

@@ -96,15 +96,15 @@ export default function OpenWorkSession({ exercises, sessionTargetSeconds, onEnd
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <p className={`text-lg font-semibold uppercase tracking-wide ${phaseColor}`}>{phaseLabel}</p>
-        <p className="text-6xl font-bold tabular-nums">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className={`text-xl font-semibold uppercase tracking-wide ${phaseColor}`}>{phaseLabel}</p>
+        <p className="text-8xl font-bold tabular-nums">
           {state.phase === 'rest' ? formatMMSS(state.restRemainingSeconds) : formatMMSS(state.workElapsedSeconds)}
         </p>
       </div>
 
       <div>
-        <div className="mb-1 flex justify-between text-xs text-neutral-500 dark:text-neutral-400">
+        <div className="mb-1.5 flex justify-between text-sm text-neutral-500 dark:text-neutral-400">
           <span>Session</span>
           <span>
             {formatMMSS(state.sessionElapsedSeconds)} / {formatMMSS(state.sessionTargetSeconds)}
@@ -113,7 +113,7 @@ export default function OpenWorkSession({ exercises, sessionTargetSeconds, onEnd
         <ProgressBar value={state.sessionElapsedSeconds / state.sessionTargetSeconds} />
       </div>
 
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap justify-center gap-3">
         <AdjustableChip
           label="Rest"
           value={state.restSeconds}
@@ -169,15 +169,15 @@ export default function OpenWorkSession({ exercises, sessionTargetSeconds, onEnd
       </div>
 
       <div>
-        <p className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Movements</p>
+        <p className="mb-2 text-base font-medium text-neutral-700 dark:text-neutral-300">Movements</p>
         <ul className="flex flex-col gap-2">
           {exercises.map((ex) => (
             <li
               key={ex.id}
-              className="rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800"
+              className="rounded-md border border-neutral-200 px-4 py-3 dark:border-neutral-800"
             >
-              <p className="text-sm font-medium">{ex.name}</p>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <p className="text-base font-medium">{ex.name}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
                 {ex.openWork?.repsLabel || '—'}
               </p>
             </li>
