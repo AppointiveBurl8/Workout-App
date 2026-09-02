@@ -38,6 +38,7 @@ export const PAILS_RAILS_SIDES = ['bilateral', 'left_right']
  * @property {string[]} tags target areas, e.g. "hips", "full-body"
  * @property {number|null} sessionTargetSeconds hard-stop total session length; only meaningful for kettlebell/open_work templates
  * @property {number[]} exerciseIds ordered Exercise ids in this template
+ * @property {boolean} archived soft-delete flag; archived templates are hidden from the main list
  *
  * @typedef {Object} LoggedSession
  * @property {number} [id]
@@ -95,6 +96,7 @@ export async function addWorkoutTemplate(template) {
     tags: [],
     sessionTargetSeconds: null,
     exerciseIds: [],
+    archived: false,
     ...template,
   })
 }
@@ -113,6 +115,17 @@ export async function updateWorkoutTemplate(id, changes) {
 
 export async function deleteWorkoutTemplate(id) {
   return db.workoutTemplates.delete(id)
+}
+
+export async function archiveWorkoutTemplate(id) {
+  return db.workoutTemplates.update(id, { archived: true })
+}
+
+export async function duplicateWorkoutTemplate(id) {
+  const source = await db.workoutTemplates.get(id)
+  if (!source) return undefined
+  const { id: _sourceId, ...rest } = source
+  return addWorkoutTemplate({ ...rest, name: `${source.name} (copy)`, archived: false })
 }
 
 // ---------------- LoggedSession ----------------
