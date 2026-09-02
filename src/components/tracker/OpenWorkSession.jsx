@@ -1,7 +1,7 @@
 import { useReducer, useState } from 'react'
 import { formatMMSS } from '../../lib/formatDuration'
-import { useInterval } from '../../lib/useInterval'
-import { primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
+import { useInterval, useOnceWhen } from '../../lib/useInterval'
+import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
 
@@ -72,12 +72,20 @@ function reducer(state, action) {
   }
 }
 
-export default function OpenWorkSession({ exercises, sessionTargetSeconds }) {
+export default function OpenWorkSession({ exercises, sessionTargetSeconds, onEnd }) {
   const [state, dispatch] = useReducer(reducer, { exercises, sessionTargetSeconds }, init)
   const [paused, setPaused] = useState(false)
   const complete = state.phase === 'complete'
 
   useInterval(() => dispatch({ type: 'TICK' }), paused || complete ? null : 1000)
+  useOnceWhen(complete, () =>
+    onEnd({ durationSeconds: state.sessionElapsedSeconds, setsCompleted: state.setsCompleted }),
+  )
+
+  const handleEndWorkout = () => {
+    if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
+    onEnd({ durationSeconds: state.sessionElapsedSeconds, setsCompleted: state.setsCompleted })
+  }
 
   const phaseLabel = complete ? 'Session complete' : state.phase === 'work' ? 'Work' : 'Rest'
   const phaseColor = complete
@@ -151,6 +159,12 @@ export default function OpenWorkSession({ exercises, sessionTargetSeconds }) {
           onClick={() => dispatch({ type: 'END_SET' })}
         >
           End Set / Start Rest
+        </button>
+      </div>
+
+      <div className="flex justify-center">
+        <button type="button" className={dangerButtonClass} disabled={complete} onClick={handleEndWorkout}>
+          End Workout
         </button>
       </div>
 

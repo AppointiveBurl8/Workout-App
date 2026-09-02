@@ -1,11 +1,26 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import OpenWorkSession from '../components/tracker/OpenWorkSession'
 import SteppedSession from '../components/tracker/SteppedSession'
 import { getExercises, getWorkoutTemplate } from '../db'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 
+function majorityCategory(steps) {
+  const counts = {}
+  for (const step of steps) counts[step.category] = (counts[step.category] ?? 0) + 1
+  let best = steps[0]?.category ?? 'kettlebell'
+  let bestCount = 0
+  for (const [category, count] of Object.entries(counts)) {
+    if (count > bestCount) {
+      best = category
+      bestCount = count
+    }
+  }
+  return best
+}
+
 export default function Tracker() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const location = useLocation()
   const templateId = searchParams.get('templateId')
@@ -75,14 +90,32 @@ export default function Tracker() {
   }
 
   const isOpenWorkSession = template?.category === 'kettlebell'
+  const category = template ? template.category : majorityCategory(steps)
+
+  const handleEnd = ({ durationSeconds, setsCompleted = null }) => {
+    navigate('/log', {
+      state: {
+        source: 'tracker-end',
+        templateId: template ? template.id : null,
+        workoutName,
+        category,
+        durationSeconds,
+        setsCompleted,
+      },
+    })
+  }
 
   return (
     <div className="flex flex-1 flex-col">
       <h1 className="px-6 pt-6 text-center text-xl font-semibold">{workoutName}</h1>
       {isOpenWorkSession ? (
-        <OpenWorkSession exercises={steps} sessionTargetSeconds={template.sessionTargetSeconds} />
+        <OpenWorkSession
+          exercises={steps}
+          sessionTargetSeconds={template.sessionTargetSeconds}
+          onEnd={handleEnd}
+        />
       ) : (
-        <SteppedSession steps={steps} />
+        <SteppedSession steps={steps} onEnd={handleEnd} />
       )}
     </div>
   )

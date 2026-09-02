@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { formatMMSS } from '../../lib/formatDuration'
 import { useInterval } from '../../lib/useInterval'
-import { iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
+import { dangerButtonClass, iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
 import IntervalStep from './IntervalStep'
 import PailsRailsStep from './PailsRailsStep'
 
@@ -63,16 +63,18 @@ function OpenWorkFallbackStep({ exercise, paused, onComplete }) {
   )
 }
 
-export default function SteppedSession({ steps }) {
+export default function SteppedSession({ steps, onEnd }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [transitioning, setTransitioning] = useState(false)
   const [transitionRemaining, setTransitionRemaining] = useState(TRANSITION_SECONDS)
-  const [finished, setFinished] = useState(false)
+  const [sessionElapsedSeconds, setSessionElapsedSeconds] = useState(0)
 
   const currentExercise = steps[currentIndex]
   const nextExercise = steps[currentIndex + 1]
   const isLast = currentIndex === steps.length - 1
+
+  useInterval(() => setSessionElapsedSeconds((s) => s + 1), paused ? null : 1000)
 
   useInterval(
     () => {
@@ -89,7 +91,7 @@ export default function SteppedSession({ steps }) {
 
   const handleStepComplete = () => {
     if (isLast) {
-      setFinished(true)
+      onEnd({ durationSeconds: sessionElapsedSeconds, setsCompleted: null })
       return
     }
     setTransitionRemaining(TRANSITION_SECONDS)
@@ -105,57 +107,74 @@ export default function SteppedSession({ steps }) {
   const goPrev = () => setCurrentIndex((i) => Math.max(0, i - 1))
   const goNext = () => setCurrentIndex((i) => Math.min(steps.length - 1, i + 1))
 
-  if (finished) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-        <p className="text-2xl font-semibold">Workout complete</p>
-        <p className="text-neutral-500 dark:text-neutral-400">Nice work.</p>
-      </div>
-    )
-  }
-
-  if (transitioning && nextExercise) {
-    return (
-      <TransitionScreen
-        nextExercise={nextExercise}
-        remainingSeconds={transitionRemaining}
-        paused={paused}
-        onTogglePause={() => setPaused((p) => !p)}
-        onSkip={skipWait}
-      />
-    )
+  const handleEndWorkout = () => {
+    if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
+    onEnd({ durationSeconds: sessionElapsedSeconds, setsCompleted: null })
   }
 
   const stepKey = `${currentIndex}-${currentExercise.id}`
 
   return (
     <div className="flex flex-1 flex-col">
-      <p className="px-6 pt-4 text-center text-lg font-medium">{currentExercise.name}</p>
+      {transitioning && nextExercise ? (
+        <TransitionScreen
+          nextExercise={nextExercise}
+          remainingSeconds={transitionRemaining}
+          paused={paused}
+          onTogglePause={() => setPaused((p) => !p)}
+          onSkip={skipWait}
+        />
+      ) : (
+        <>
+          <p className="px-6 pt-4 text-center text-lg font-medium">{currentExercise.name}</p>
 
-      {currentExercise.timerMode === 'interval' && (
-        <IntervalStep key={stepKey} exercise={currentExercise} paused={paused} onComplete={handleStepComplete} />
-      )}
-      {currentExercise.timerMode === 'pails_rails' && (
-        <PailsRailsStep key={stepKey} exercise={currentExercise} paused={paused} onComplete={handleStepComplete} />
-      )}
-      {currentExercise.timerMode === 'open_work' && (
-        <OpenWorkFallbackStep key={stepKey} exercise={currentExercise} paused={paused} onComplete={handleStepComplete} />
+          {currentExercise.timerMode === 'interval' && (
+            <IntervalStep
+              key={stepKey}
+              exercise={currentExercise}
+              paused={paused}
+              onComplete={handleStepComplete}
+            />
+          )}
+          {currentExercise.timerMode === 'pails_rails' && (
+            <PailsRailsStep
+              key={stepKey}
+              exercise={currentExercise}
+              paused={paused}
+              onComplete={handleStepComplete}
+            />
+          )}
+          {currentExercise.timerMode === 'open_work' && (
+            <OpenWorkFallbackStep
+              key={stepKey}
+              exercise={currentExercise}
+              paused={paused}
+              onComplete={handleStepComplete}
+            />
+          )}
+
+          <div className="flex items-center justify-center gap-3 pb-4">
+            <button type="button" className={iconButtonClass} onClick={goPrev} disabled={currentIndex === 0}>
+              ⏮ Prev
+            </button>
+            <button type="button" className={secondaryButtonClass} onClick={() => setPaused((p) => !p)}>
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+            <button
+              type="button"
+              className={iconButtonClass}
+              onClick={goNext}
+              disabled={currentIndex === steps.length - 1}
+            >
+              Next ⏭
+            </button>
+          </div>
+        </>
       )}
 
-      <div className="flex items-center justify-center gap-3 pb-6">
-        <button type="button" className={iconButtonClass} onClick={goPrev} disabled={currentIndex === 0}>
-          ⏮ Prev
-        </button>
-        <button type="button" className={secondaryButtonClass} onClick={() => setPaused((p) => !p)}>
-          {paused ? 'Resume' : 'Pause'}
-        </button>
-        <button
-          type="button"
-          className={iconButtonClass}
-          onClick={goNext}
-          disabled={currentIndex === steps.length - 1}
-        >
-          Next ⏭
+      <div className="flex justify-center pb-6">
+        <button type="button" className={dangerButtonClass} onClick={handleEndWorkout}>
+          End Workout
         </button>
       </div>
     </div>
