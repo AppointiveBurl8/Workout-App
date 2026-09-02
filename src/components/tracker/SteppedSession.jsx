@@ -1,0 +1,163 @@
+import { useState } from 'react'
+import { formatMMSS } from '../../lib/formatDuration'
+import { useInterval } from '../../lib/useInterval'
+import { iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
+import IntervalStep from './IntervalStep'
+import PailsRailsStep from './PailsRailsStep'
+
+const TRANSITION_SECONDS = 10
+
+function roundsLabel(rounds) {
+  return `${rounds} round${rounds === 1 ? '' : 's'}`
+}
+
+function summarize(exercise) {
+  if (exercise.timerMode === 'interval') {
+    const { workSeconds, restSeconds, rounds } = exercise.interval
+    return `Work ${formatMMSS(workSeconds)} / Rest ${formatMMSS(restSeconds)} × ${roundsLabel(rounds)}`
+  }
+  if (exercise.timerMode === 'pails_rails') {
+    const { pailsHoldSeconds, railsHoldSeconds, rounds } = exercise.pailsRails
+    return `PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
+  }
+  return 'Open work — go at your own pace'
+}
+
+function TransitionScreen({ nextExercise, remainingSeconds, paused, onTogglePause, onSkip }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+      <p className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        Up Next
+      </p>
+      <p className="text-2xl font-semibold">{nextExercise.name}</p>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">{summarize(nextExercise)}</p>
+      <p className="text-6xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
+      <div className="flex gap-3">
+        <button type="button" className={secondaryButtonClass} onClick={onTogglePause}>
+          {paused ? 'Resume' : 'Pause'}
+        </button>
+        <button type="button" className={primaryButtonClass} onClick={onSkip}>
+          Skip wait, start now
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function OpenWorkFallbackStep({ exercise, paused, onComplete }) {
+  const [elapsed, setElapsed] = useState(0)
+  useInterval(() => setElapsed((s) => s + 1), paused ? null : 1000)
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+      <p className="text-lg font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+        Open Work
+      </p>
+      {exercise.openWork?.repsLabel && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{exercise.openWork.repsLabel}</p>
+      )}
+      <p className="text-6xl font-bold tabular-nums">{formatMMSS(elapsed)}</p>
+      <button type="button" className={primaryButtonClass} onClick={onComplete}>
+        Done, next exercise
+      </button>
+    </div>
+  )
+}
+
+export default function SteppedSession({ steps }) {
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [transitioning, setTransitioning] = useState(false)
+  const [transitionRemaining, setTransitionRemaining] = useState(TRANSITION_SECONDS)
+  const [finished, setFinished] = useState(false)
+
+  const currentExercise = steps[currentIndex]
+  const nextExercise = steps[currentIndex + 1]
+  const isLast = currentIndex === steps.length - 1
+
+  useInterval(
+    () => {
+      if (transitionRemaining <= 1) {
+        setTransitioning(false)
+        setCurrentIndex((i) => i + 1)
+        setTransitionRemaining(TRANSITION_SECONDS)
+      } else {
+        setTransitionRemaining((s) => s - 1)
+      }
+    },
+    transitioning && !paused ? 1000 : null,
+  )
+
+  const handleStepComplete = () => {
+    if (isLast) {
+      setFinished(true)
+      return
+    }
+    setTransitionRemaining(TRANSITION_SECONDS)
+    setTransitioning(true)
+  }
+
+  const skipWait = () => {
+    setTransitioning(false)
+    setTransitionRemaining(TRANSITION_SECONDS)
+    setCurrentIndex((i) => i + 1)
+  }
+
+  const goPrev = () => setCurrentIndex((i) => Math.max(0, i - 1))
+  const goNext = () => setCurrentIndex((i) => Math.min(steps.length - 1, i + 1))
+
+  if (finished) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <p className="text-2xl font-semibold">Workout complete</p>
+        <p className="text-neutral-500 dark:text-neutral-400">Nice work.</p>
+      </div>
+    )
+  }
+
+  if (transitioning && nextExercise) {
+    return (
+      <TransitionScreen
+        nextExercise={nextExercise}
+        remainingSeconds={transitionRemaining}
+        paused={paused}
+        onTogglePause={() => setPaused((p) => !p)}
+        onSkip={skipWait}
+      />
+    )
+  }
+
+  const stepKey = `${currentIndex}-${currentExercise.id}`
+
+  return (
+    <div className="flex flex-1 flex-col">
+      <p className="px-6 pt-4 text-center text-lg font-medium">{currentExercise.name}</p>
+
+      {currentExercise.timerMode === 'interval' && (
+        <IntervalStep key={stepKey} exercise={currentExercise} paused={paused} onComplete={handleStepComplete} />
+      )}
+      {currentExercise.timerMode === 'pails_rails' && (
+        <PailsRailsStep key={stepKey} exercise={currentExercise} paused={paused} onComplete={handleStepComplete} />
+      )}
+      {currentExercise.timerMode === 'open_work' && (
+        <OpenWorkFallbackStep key={stepKey} exercise={currentExercise} paused={paused} onComplete={handleStepComplete} />
+      )}
+
+      <div className="flex items-center justify-center gap-3 pb-6">
+        <button type="button" className={iconButtonClass} onClick={goPrev} disabled={currentIndex === 0}>
+          ⏮ Prev
+        </button>
+        <button type="button" className={secondaryButtonClass} onClick={() => setPaused((p) => !p)}>
+          {paused ? 'Resume' : 'Pause'}
+        </button>
+        <button
+          type="button"
+          className={iconButtonClass}
+          onClick={goNext}
+          disabled={currentIndex === steps.length - 1}
+        >
+          Next ⏭
+        </button>
+      </div>
+    </div>
+  )
+}

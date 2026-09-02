@@ -1,6 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useLocation, useSearchParams } from 'react-router-dom'
-import { getExercises } from '../db'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import OpenWorkSession from '../components/tracker/OpenWorkSession'
+import SteppedSession from '../components/tracker/SteppedSession'
+import { getExercises, getWorkoutTemplate } from '../db'
+import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 
 export default function Tracker() {
   const [searchParams] = useSearchParams()
@@ -9,28 +12,78 @@ export default function Tracker() {
   const builderExerciseIds =
     location.state?.source === 'builder' ? location.state.exerciseIds : null
 
-  const exercises = useLiveQuery(() => getExercises(), [])
-  const exercisesById = new Map((exercises ?? []).map((ex) => [ex.id, ex]))
+  const template = useLiveQuery(
+    () => (templateId ? getWorkoutTemplate(Number(templateId)) : Promise.resolve(null)),
+    [templateId],
+  )
+  const allExercises = useLiveQuery(() => getExercises(), [])
+
+  if (!templateId && !builderExerciseIds) {
+    return (
+      <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <h1 className="text-2xl font-semibold">Tracker</h1>
+        <p className="text-neutral-500 dark:text-neutral-400">
+          No active workout. Start one from Library or Builder.
+        </p>
+        <div className="flex gap-2">
+          <Link to="/library" className={primaryButtonClass}>
+            Library
+          </Link>
+          <Link to="/builder" className={secondaryButtonClass}>
+            Builder
+          </Link>
+        </div>
+      </section>
+    )
+  }
+
+  if (allExercises === undefined || (templateId && template === undefined)) {
+    return (
+      <section className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+        <p className="text-neutral-500 dark:text-neutral-400">Loading…</p>
+      </section>
+    )
+  }
+
+  if (templateId && template === null) {
+    return (
+      <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <h1 className="text-2xl font-semibold">Tracker</h1>
+        <p className="text-neutral-500 dark:text-neutral-400">Template not found.</p>
+        <Link to="/library" className={primaryButtonClass}>
+          Back to Library
+        </Link>
+      </section>
+    )
+  }
+
+  const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
+  const exerciseIds = template ? template.exerciseIds : builderExerciseIds
+  const steps = exerciseIds.map((id) => exercisesById.get(id)).filter(Boolean)
+  const workoutName = template ? template.name : 'On-the-fly Workout'
+
+  if (steps.length === 0) {
+    return (
+      <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <h1 className="text-2xl font-semibold">{workoutName}</h1>
+        <p className="text-neutral-500 dark:text-neutral-400">This workout has no exercises.</p>
+        <Link to="/library" className={primaryButtonClass}>
+          Back to Library
+        </Link>
+      </section>
+    )
+  }
+
+  const isOpenWorkSession = template?.category === 'kettlebell'
 
   return (
-    <section className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <h1 className="text-2xl font-semibold">Tracker</h1>
-      <p className="text-neutral-500 dark:text-neutral-400">Coming soon</p>
-      {templateId && (
-        <p className="text-sm text-neutral-400 dark:text-neutral-500">
-          templateId: {templateId}
-        </p>
+    <div className="flex flex-1 flex-col">
+      <h1 className="px-6 pt-6 text-center text-xl font-semibold">{workoutName}</h1>
+      {isOpenWorkSession ? (
+        <OpenWorkSession exercises={steps} sessionTargetSeconds={template.sessionTargetSeconds} />
+      ) : (
+        <SteppedSession steps={steps} />
       )}
-      {builderExerciseIds && (
-        <div className="mt-2 text-sm text-neutral-400 dark:text-neutral-500">
-          <p>On-the-fly workout from Builder ({builderExerciseIds.length} exercises):</p>
-          <ul>
-            {builderExerciseIds.map((id, index) => (
-              <li key={`${id}-${index}`}>{exercisesById.get(id)?.name ?? `#${id}`}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
+    </div>
   )
 }
