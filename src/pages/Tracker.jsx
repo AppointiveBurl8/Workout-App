@@ -1,64 +1,92 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import MuteToggle from '../components/tracker/MuteToggle'
 import OpenWorkSession from '../components/tracker/OpenWorkSession'
 import SteppedSession from '../components/tracker/SteppedSession'
 import { getExercises, getWorkoutTemplate } from '../db'
-import { majorityCategory, resolveSessionConfig } from '../lib/sessionConfig'
+import { useActiveSession } from '../lib/activeSessionStore'
+import { resolveSessionConfig } from '../lib/sessionConfig'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
-
-function ActiveSession({ steps, initialConfig, onEnd }) {
-  // The live config for this session. It lives above the step components so the
-  // tap-to-adjust chips carry from one exercise to the next instead of resetting.
-  const [config, setConfig] = useState(initialConfig)
-
-  if (config.timerMode === 'open_work') {
-    return (
-      <OpenWorkSession
-        exercises={steps}
-        config={config.openWorkConfig}
-        sideMode={config.sideMode}
-        onConfigChange={(openWorkConfig) => setConfig({ ...config, openWorkConfig })}
-        onEnd={onEnd}
-      />
-    )
-  }
-
-  const isInterval = config.timerMode === 'interval'
-  return (
-    <SteppedSession
-      steps={steps}
-      timerMode={config.timerMode}
-      config={isInterval ? config.intervalConfig : config.pailsRailsConfig}
-      onConfigChange={(next) =>
-        setConfig(
-          isInterval
-            ? { ...config, intervalConfig: next }
-            : { ...config, pailsRailsConfig: next },
-        )
-      }
-      onEnd={onEnd}
-    />
-  )
-}
 
 export default function Tracker() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const location = useLocation()
   const templateId = searchParams.get('templateId')
-  const session = location.state?.source === 'start' ? location.state : null
+  const resolvedTemplateId = templateId ? Number(templateId) : null
 
-  const resolvedTemplateId = session?.templateId ?? (templateId ? Number(templateId) : null)
-
+  const { session, dispatch, hydrated } = useActiveSession()
+  const allExercises = useLiveQuery(() => getExercises(), [])
   const template = useLiveQuery(
     () => (resolvedTemplateId ? getWorkoutTemplate(resolvedTemplateId) : Promise.resolve(null)),
     [resolvedTemplateId],
   )
-  const allExercises = useLiveQuery(() => getExercises(), [])
 
-  if (!session && !resolvedTemplateId) {
+  const hasSession = session.status === 'active' || session.status === 'complete'
+  const bootstrapped = useRef(false)
+
+  // A direct /tracker?templateId= link (a refresh mid-session, or an old link) skips
+  // the Start Workout screen - bootstrap a session from the template's saved
+  // defaults, same as Start Workout would, still gated on an explicit Start tap.
+  useEffect(() => {
+    if (hasSession || !hydrated || bootstrapped.current) return
+    if (!resolvedTemplateId || allExercises === undefined || template === undefined || template === null) return
+    bootstrapped.current = true
+    const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
+    const exerciseIds = (template.exerciseIds ?? []).filter((id) => exercisesById.has(id))
+    if (exerciseIds.length === 0) return
+    const { timerMode, ...config } = resolveSessionConfig(template, template.category)
+    dispatch({
+      type: 'START_SESSION',
+      templateId: template.id,
+      workoutName: template.name,
+      category: template.category,
+      exerciseIds,
+      timerMode,
+      config,
+    })
+  }, [hasSession, hydrated, resolvedTemplateId, allExercises, template, dispatch])
+
+  const handedOffRef = useRef(false)
+  useEffect(() => {
+    if (session.status === 'idle') handedOffRef.current = false
+  }, [session.status])
+  useEffect(() => {
+    if (session.status !== 'complete' || handedOffRef.current) return
+    handedOffRef.current = true
+    navigate('/log', {
+      state: {
+        source: 'tracker-end',
+        templateId: session.templateId,
+        workoutName: session.workoutName,
+        category: session.category,
+        durationSeconds: session.completion.durationSeconds,
+        setsCompleted: session.completion.setsCompleted,
+      },
+    })
+    dispatch({ type: 'CLEAR' })
+  }, [session, navigate, dispatch])
+
+  if (!hydrated || allExercises === undefined) {
+    return (
+      <section className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+        <p className="text-neutral-500 dark:text-neutral-400">Loading…</p>
+      </section>
+    )
+  }
+
+  if (!hasSession) {
+    if (resolvedTemplateId && template === null) {
+      return (
+        <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <h1 className="text-2xl font-semibold">Tracker</h1>
+          <p className="text-neutral-500 dark:text-neutral-400">Template not found.</p>
+          <Link to="/library" className={primaryButtonClass}>
+            Back to Library
+          </Link>
+        </section>
+      )
+    }
     return (
       <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
         <h1 className="text-2xl font-semibold">Tracker</h1>
@@ -77,35 +105,13 @@ export default function Tracker() {
     )
   }
 
-  if (allExercises === undefined || (resolvedTemplateId && template === undefined)) {
-    return (
-      <section className="flex flex-1 flex-col items-center justify-center p-6 text-center">
-        <p className="text-neutral-500 dark:text-neutral-400">Loading…</p>
-      </section>
-    )
-  }
-
-  if (resolvedTemplateId && template === null && !session) {
-    return (
-      <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-        <h1 className="text-2xl font-semibold">Tracker</h1>
-        <p className="text-neutral-500 dark:text-neutral-400">Template not found.</p>
-        <Link to="/library" className={primaryButtonClass}>
-          Back to Library
-        </Link>
-      </section>
-    )
-  }
-
   const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
-  const exerciseIds = session?.exerciseIds ?? template?.exerciseIds ?? []
-  const steps = exerciseIds.map((id) => exercisesById.get(id)).filter(Boolean)
-  const workoutName = session?.workoutName ?? template?.name ?? 'On-the-fly Workout'
+  const steps = session.exerciseIds.map((id) => exercisesById.get(id)).filter(Boolean)
 
   if (steps.length === 0) {
     return (
       <section className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-        <h1 className="text-2xl font-semibold">{workoutName}</h1>
+        <h1 className="text-2xl font-semibold">{session.workoutName}</h1>
         <p className="text-neutral-500 dark:text-neutral-400">This workout has no exercises.</p>
         <Link to="/library" className={primaryButtonClass}>
           Back to Library
@@ -114,37 +120,18 @@ export default function Tracker() {
     )
   }
 
-  const category = session?.category ?? template?.category ?? majorityCategory(steps)
-  // Straight to /tracker (a refresh mid-session, or an old link) skips the Start
-  // Workout screen, so fall back to whatever the template saved as its defaults.
-  const initialConfig = session?.sessionConfig ?? resolveSessionConfig(template, category)
-
-  const handleEnd = ({ durationSeconds, setsCompleted = null }) => {
-    navigate('/log', {
-      state: {
-        source: 'tracker-end',
-        templateId: template ? template.id : null,
-        workoutName,
-        category,
-        durationSeconds,
-        setsCompleted,
-      },
-    })
-  }
-
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between px-6 pt-6">
         <div className="w-11" aria-hidden="true" />
-        <h1 className="text-center text-xl font-semibold">{workoutName}</h1>
+        <h1 className="text-center text-xl font-semibold">{session.workoutName}</h1>
         <MuteToggle />
       </div>
-      <ActiveSession
-        key={location.key}
-        steps={steps}
-        initialConfig={initialConfig}
-        onEnd={handleEnd}
-      />
+      {session.timerMode === 'open_work' ? (
+        <OpenWorkSession exercises={steps} session={session} dispatch={dispatch} />
+      ) : (
+        <SteppedSession steps={steps} session={session} dispatch={dispatch} />
+      )}
     </div>
   )
 }

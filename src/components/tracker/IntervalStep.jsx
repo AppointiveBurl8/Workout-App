@@ -1,78 +1,43 @@
-import { useReducer } from 'react'
 import { usePhaseTransitionCues } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
-import { useInterval, useOnceWhen } from '../../lib/useInterval'
+import {
+  INTERVAL_PHASE_COLORS,
+  INTERVAL_PHASE_LABELS,
+  stepPhaseTotal,
+} from '../../lib/sessionEngine'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
 
-function init(config) {
-  return { phase: 'work', round: 1, remainingSeconds: config.workSeconds, done: false }
-}
+/**
+ * Purely presentational - the phase machine lives in the app-level active-session
+ * store so it survives leaving the Tracker tab. This component just renders the
+ * current step state and forwards chip edits / phase-cue audio for it.
+ */
+export default function IntervalStep({ config, stepState, onAdjustConfig }) {
+  usePhaseTransitionCues(stepState.phase, stepState.round, stepState.done)
 
-function reducer(state, action) {
-  switch (action.type) {
-    case 'TICK': {
-      if (state.done) return state
-      const { workSeconds, restSeconds, rounds } = action.config
-      const remainingSeconds = state.remainingSeconds - 1
-      if (remainingSeconds > 0) return { ...state, remainingSeconds }
-      if (state.phase === 'work') {
-        if (state.round < rounds) {
-          return { ...state, phase: 'rest', remainingSeconds: restSeconds }
-        }
-        return { ...state, done: true, remainingSeconds: 0 }
-      }
-      return { ...state, phase: 'work', round: state.round + 1, remainingSeconds: workSeconds }
-    }
-    // Retuning the phase that's currently running shifts what's left of it by the same amount.
-    case 'ADJUST_REMAINING':
-      return { ...state, remainingSeconds: Math.max(1, state.remainingSeconds + action.delta) }
-    case 'CLAMP_ROUND':
-      return { ...state, round: Math.min(state.round, action.rounds) }
-    default:
-      return state
-  }
-}
-
-export default function IntervalStep({ config, paused, onComplete, onConfigChange }) {
-  const [state, dispatch] = useReducer(reducer, config, init)
-
-  useInterval(() => dispatch({ type: 'TICK', config }), paused || state.done ? null : 1000)
-  useOnceWhen(state.done, onComplete)
-  usePhaseTransitionCues(state.phase, state.round, state.done)
-
-  const setDuration = (field, value) => {
-    const runningField = state.phase === 'work' ? 'workSeconds' : 'restSeconds'
-    if (field === runningField) {
-      dispatch({ type: 'ADJUST_REMAINING', delta: value - config[field] })
-    }
-    onConfigChange({ ...config, [field]: value })
-  }
-
-  const setRounds = (value) => {
-    dispatch({ type: 'CLAMP_ROUND', rounds: value })
-    onConfigChange({ ...config, rounds: value })
-  }
-
-  const phaseTotal = state.phase === 'work' ? config.workSeconds : config.restSeconds
+  const phaseTotal = stepPhaseTotal('interval', stepState, config)
+  const colors = INTERVAL_PHASE_COLORS[stepState.phase]
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
-      <p
-        className={`text-xl font-semibold uppercase tracking-wide ${
-          state.phase === 'work'
-            ? 'text-indigo-600 dark:text-indigo-400'
-            : 'text-emerald-600 dark:text-emerald-400'
-        }`}
-      >
-        {state.phase === 'work' ? 'Work' : 'Rest'}
+      <p className={`text-xl font-semibold uppercase tracking-wide ${colors.label}`}>
+        {INTERVAL_PHASE_LABELS[stepState.phase]}
       </p>
-      <p className="text-8xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
+      {stepState.side && (
+        <p className="-mt-4 text-base font-medium text-neutral-600 dark:text-neutral-300">
+          {stepState.side === 'left' ? 'Left side' : 'Right side'}
+        </p>
+      )}
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(stepState.remainingSeconds)}</p>
       <div className="w-full max-w-xs">
-        <ProgressBar value={phaseTotal > 0 ? 1 - state.remainingSeconds / phaseTotal : 1} />
+        <ProgressBar
+          value={phaseTotal > 0 ? 1 - stepState.remainingSeconds / phaseTotal : 1}
+          colorClassName={colors.bar}
+        />
       </div>
       <p className="text-base text-neutral-500 dark:text-neutral-400">
-        Round {state.round} of {config.rounds}
+        Round {stepState.round} of {config.rounds}
       </p>
 
       <div className="flex flex-wrap justify-center gap-3">
@@ -82,7 +47,7 @@ export default function IntervalStep({ config, paused, onComplete, onConfigChang
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => setDuration('workSeconds', v)}
+          onChange={(v) => onAdjustConfig('workSeconds', v)}
         />
         <AdjustableChip
           label="Rest"
@@ -90,7 +55,7 @@ export default function IntervalStep({ config, paused, onComplete, onConfigChang
           formatValue={formatMMSS}
           step={5}
           min={0}
-          onChange={(v) => setDuration('restSeconds', v)}
+          onChange={(v) => onAdjustConfig('restSeconds', v)}
         />
         <AdjustableChip
           label="Rounds"
@@ -98,7 +63,7 @@ export default function IntervalStep({ config, paused, onComplete, onConfigChang
           formatValue={(v) => String(v)}
           step={1}
           min={1}
-          onChange={setRounds}
+          onChange={(v) => onAdjustConfig('rounds', v)}
         />
       </div>
     </div>

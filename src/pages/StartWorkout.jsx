@@ -5,8 +5,24 @@ import CategoryBadge from '../components/CategoryBadge'
 import TimerModeConfigFields, { TimerModePicker } from '../components/TimerModeConfigFields'
 import { getExercises, getWorkoutTemplate } from '../db'
 import { unlockAudio } from '../lib/audioCues'
+import { useActiveSession } from '../lib/activeSessionStore'
+import { formatMMSS } from '../lib/formatDuration'
 import { majorityCategory, resolveSessionConfig } from '../lib/sessionConfig'
+import { computeStepSessionDurationSeconds } from '../lib/sessionEngine'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
+
+/** Total estimated session length, live as chips change - null for Open Work, which
+ * runs to its own fixed session-target duration instead. */
+function TotalDurationSummary({ timerMode, config, exerciseCount }) {
+  if (timerMode === 'open_work') return null
+  const modeConfig = timerMode === 'interval' ? config.intervalConfig : config.pailsRailsConfig
+  const totalSeconds = computeStepSessionDurationSeconds(timerMode, modeConfig, exerciseCount)
+  return (
+    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+      Estimated total: <span className="font-medium text-neutral-700 dark:text-neutral-300">{formatMMSS(totalSeconds)}</span>
+    </p>
+  )
+}
 
 function EmptyState({ message }) {
   return (
@@ -27,22 +43,25 @@ function EmptyState({ message }) {
 
 function StartWorkoutForm({ template, steps, workoutName, category }) {
   const navigate = useNavigate()
+  const { dispatch } = useActiveSession()
   const [config, setConfig] = useState(() => resolveSessionConfig(template, category))
 
   const begin = () => {
     // The tap that actually starts the workout - and so the one that unlocks audio
-    // for the auto-triggered cues later in the session.
+    // for the auto-triggered cues later in the session. The session itself still
+    // lands paused/ready until a separate Start tap inside the Tracker (item 7).
     unlockAudio()
-    navigate('/tracker', {
-      state: {
-        source: 'start',
-        templateId: template?.id ?? null,
-        workoutName,
-        category,
-        exerciseIds: steps.map((step) => step.id),
-        sessionConfig: config,
-      },
+    const { timerMode, ...sessionConfig } = config
+    dispatch({
+      type: 'START_SESSION',
+      templateId: template?.id ?? null,
+      workoutName,
+      category,
+      exerciseIds: steps.map((step) => step.id),
+      timerMode,
+      config: sessionConfig,
     })
+    navigate('/tracker')
   }
 
   return (
@@ -89,6 +108,9 @@ function StartWorkoutForm({ template, steps, workoutName, category }) {
             onChange={(patch) => setConfig({ ...config, ...patch })}
             idPrefix="start"
           />
+        </div>
+        <div className="mt-3">
+          <TotalDurationSummary timerMode={config.timerMode} config={config} exerciseCount={steps.length} />
         </div>
       </div>
 

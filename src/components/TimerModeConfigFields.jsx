@@ -1,4 +1,4 @@
-import { PAILS_RAILS_SIDES, SIDE_MODES, TIMER_MODES } from '../db'
+import { INTERVAL_SIDE_MODES, SIDE_MODES, TIMER_MODES } from '../db'
 import { SIDE_MODE_LABELS, TIMER_MODE_LABELS } from '../lib/categories'
 import { inputClass, labelClass } from '../lib/ui'
 
@@ -61,26 +61,45 @@ export default function TimerModeConfigFields({ timerMode, config, onChange, idP
 
   if (timerMode === 'interval') {
     return (
-      <div className="grid grid-cols-3 gap-3">
-        <NumberField
-          id={`${idPrefix}-iv-work`}
-          label="Work (sec)"
-          value={intervalConfig.workSeconds}
-          onChange={(v) => patchInterval('workSeconds', v)}
-        />
-        <NumberField
-          id={`${idPrefix}-iv-rest`}
-          label="Rest (sec)"
-          value={intervalConfig.restSeconds}
-          onChange={(v) => patchInterval('restSeconds', v)}
-        />
-        <NumberField
-          id={`${idPrefix}-iv-rounds`}
-          label="Rounds"
-          min={1}
-          value={intervalConfig.rounds}
-          onChange={(v) => patchInterval('rounds', v)}
-        />
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-3 gap-3">
+          <NumberField
+            id={`${idPrefix}-iv-work`}
+            label="Work (sec)"
+            value={intervalConfig.workSeconds}
+            onChange={(v) => patchInterval('workSeconds', v)}
+          />
+          <NumberField
+            id={`${idPrefix}-iv-rest`}
+            label="Rest (sec)"
+            value={intervalConfig.restSeconds}
+            onChange={(v) => patchInterval('restSeconds', v)}
+          />
+          <NumberField
+            id={`${idPrefix}-iv-rounds`}
+            label="Rounds"
+            min={1}
+            value={intervalConfig.rounds}
+            onChange={(v) => patchInterval('rounds', v)}
+          />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor={`${idPrefix}-iv-side`}>
+            Side
+          </label>
+          <select
+            id={`${idPrefix}-iv-side`}
+            className={inputClass}
+            value={intervalConfig.sideMode}
+            onChange={(e) => patchInterval('sideMode', e.target.value)}
+          >
+            {INTERVAL_SIDE_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode === 'bilateral' ? 'Bilateral' : 'Unilateral (Left, then Right)'}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     )
   }
@@ -114,32 +133,16 @@ export default function TimerModeConfigFields({ timerMode, config, onChange, idP
             onChange={(v) => patchPailsRails('railsHoldSeconds', v)}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <NumberField
-            id={`${idPrefix}-pr-rounds`}
-            label="Rounds"
-            min={1}
-            value={pailsRailsConfig.rounds}
-            onChange={(v) => patchPailsRails('rounds', v)}
-          />
-          <div>
-            <label className={labelClass} htmlFor={`${idPrefix}-pr-side`}>
-              Side
-            </label>
-            <select
-              id={`${idPrefix}-pr-side`}
-              className={inputClass}
-              value={pailsRailsConfig.side}
-              onChange={(e) => patchPailsRails('side', e.target.value)}
-            >
-              {PAILS_RAILS_SIDES.map((side) => (
-                <option key={side} value={side}>
-                  {side === 'bilateral' ? 'Bilateral' : 'Left / Right'}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <NumberField
+          id={`${idPrefix}-pr-rounds`}
+          label="Rounds"
+          min={1}
+          value={pailsRailsConfig.rounds}
+          onChange={(v) => patchPailsRails('rounds', v)}
+        />
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Runs Left, then Right, every round - Pails/Rails movements are always single-sided.
+        </p>
       </div>
     )
   }

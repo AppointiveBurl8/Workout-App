@@ -1,116 +1,43 @@
-import { useReducer } from 'react'
 import { usePhaseTransitionCues } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
-import { useInterval, useOnceWhen } from '../../lib/useInterval'
+import {
+  PAILS_RAILS_PHASE_COLORS,
+  PAILS_RAILS_PHASE_LABELS,
+  stepPhaseTotal,
+} from '../../lib/sessionEngine'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
 
-const SWITCH_SECONDS = 3
-const PHASE_LABELS = {
-  stretch: 'Stretch Hold',
-  ramp: 'Ramp',
-  pails: 'PAILs Hold',
-  switch: 'Switch',
-  rails: 'RAILs Hold',
-}
-/** Sustained holds get their own color; the brief ramp/switch transitions share a neutral one. */
-const PHASE_COLORS = {
-  stretch: { label: 'text-yellow-600 dark:text-yellow-400', bar: 'bg-yellow-500' },
-  ramp: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
-  pails: { label: 'text-green-600 dark:text-green-400', bar: 'bg-green-600' },
-  switch: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
-  rails: { label: 'text-red-600 dark:text-red-400', bar: 'bg-red-600' },
-}
-/** Which config duration each phase is counting down, so a chip edit can adjust the phase in flight. */
-const PHASE_CONFIG_FIELD = {
-  stretch: 'holdSeconds',
-  ramp: 'rampSeconds',
-  pails: 'pailsHoldSeconds',
-  rails: 'railsHoldSeconds',
-}
+/**
+ * Purely presentational - the phase machine lives in the app-level active-session
+ * store so it survives leaving the Tracker tab. This component just renders the
+ * current step state and forwards chip edits / phase-cue audio for it.
+ */
+export default function PailsRailsStep({ config, stepState, onAdjustConfig }) {
+  usePhaseTransitionCues(stepState.phase, stepState.round, stepState.done)
 
-function init(config) {
-  return { phase: 'stretch', round: 1, remainingSeconds: config.holdSeconds, done: false }
-}
-
-function reducer(state, action) {
-  switch (action.type) {
-    case 'TICK': {
-      if (state.done) return state
-      const { holdSeconds, rampSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = action.config
-      const remainingSeconds = state.remainingSeconds - 1
-      if (remainingSeconds > 0) return { ...state, remainingSeconds }
-      if (state.phase === 'stretch') {
-        return { ...state, phase: 'ramp', remainingSeconds: rampSeconds }
-      }
-      if (state.phase === 'ramp') {
-        return { ...state, phase: 'pails', remainingSeconds: pailsHoldSeconds }
-      }
-      if (state.phase === 'pails') {
-        return { ...state, phase: 'switch', remainingSeconds: SWITCH_SECONDS }
-      }
-      if (state.phase === 'switch') {
-        return { ...state, phase: 'rails', remainingSeconds: railsHoldSeconds }
-      }
-      // phase === 'rails' -> round boundary
-      if (state.round < rounds) {
-        return { ...state, phase: 'stretch', round: state.round + 1, remainingSeconds: holdSeconds }
-      }
-      return { ...state, done: true, remainingSeconds: 0 }
-    }
-    case 'ADJUST_REMAINING':
-      return { ...state, remainingSeconds: Math.max(1, state.remainingSeconds + action.delta) }
-    case 'CLAMP_ROUND':
-      return { ...state, round: Math.min(state.round, action.rounds) }
-    default:
-      return state
-  }
-}
-
-export default function PailsRailsStep({ config, paused, onComplete, onConfigChange }) {
-  const [state, dispatch] = useReducer(reducer, config, init)
-
-  useInterval(() => dispatch({ type: 'TICK', config }), paused || state.done ? null : 1000)
-  useOnceWhen(state.done, onComplete)
-  usePhaseTransitionCues(state.phase, state.round, state.done)
-
-  const setDuration = (field, value) => {
-    if (field === PHASE_CONFIG_FIELD[state.phase]) {
-      dispatch({ type: 'ADJUST_REMAINING', delta: value - config[field] })
-    }
-    onConfigChange({ ...config, [field]: value })
-  }
-
-  const setRounds = (value) => {
-    dispatch({ type: 'CLAMP_ROUND', rounds: value })
-    onConfigChange({ ...config, rounds: value })
-  }
-
-  const phaseTotal =
-    state.phase === 'switch' ? SWITCH_SECONDS : config[PHASE_CONFIG_FIELD[state.phase]]
-
-  const activeSide =
-    config.side === 'left_right' ? (state.round % 2 === 1 ? 'left' : 'right') : null
+  const phaseTotal = stepPhaseTotal('pails_rails', stepState, config)
+  const colors = PAILS_RAILS_PHASE_COLORS[stepState.phase]
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
-      <p className={`text-xl font-semibold uppercase tracking-wide ${PHASE_COLORS[state.phase].label}`}>
-        {PHASE_LABELS[state.phase]}
+      <p className={`text-xl font-semibold uppercase tracking-wide ${colors.label}`}>
+        {PAILS_RAILS_PHASE_LABELS[stepState.phase]}
       </p>
-      {activeSide && (
+      {stepState.side && (
         <p className="-mt-4 text-base font-medium text-neutral-600 dark:text-neutral-300">
-          {activeSide === 'left' ? 'Left side' : 'Right side'}
+          {stepState.side === 'left' ? 'Left side' : 'Right side'}
         </p>
       )}
-      <p className="text-8xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(stepState.remainingSeconds)}</p>
       <div className="w-full max-w-xs">
         <ProgressBar
-          value={phaseTotal > 0 ? 1 - state.remainingSeconds / phaseTotal : 1}
-          colorClassName={PHASE_COLORS[state.phase].bar}
+          value={phaseTotal > 0 ? 1 - stepState.remainingSeconds / phaseTotal : 1}
+          colorClassName={colors.bar}
         />
       </div>
       <p className="text-base text-neutral-500 dark:text-neutral-400">
-        Round {state.round} of {config.rounds}
+        Round {stepState.round} of {config.rounds}
       </p>
 
       <div className="flex flex-wrap justify-center gap-3">
@@ -120,7 +47,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => setDuration('holdSeconds', v)}
+          onChange={(v) => onAdjustConfig('holdSeconds', v)}
         />
         <AdjustableChip
           label="Ramp"
@@ -128,7 +55,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
           formatValue={formatMMSS}
           step={5}
           min={0}
-          onChange={(v) => setDuration('rampSeconds', v)}
+          onChange={(v) => onAdjustConfig('rampSeconds', v)}
         />
         <AdjustableChip
           label="PAILs"
@@ -136,7 +63,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => setDuration('pailsHoldSeconds', v)}
+          onChange={(v) => onAdjustConfig('pailsHoldSeconds', v)}
         />
         <AdjustableChip
           label="RAILs"
@@ -144,7 +71,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => setDuration('railsHoldSeconds', v)}
+          onChange={(v) => onAdjustConfig('railsHoldSeconds', v)}
         />
         <AdjustableChip
           label="Rounds"
@@ -152,7 +79,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
           formatValue={(v) => String(v)}
           step={1}
           min={1}
-          onChange={setRounds}
+          onChange={(v) => onAdjustConfig('rounds', v)}
         />
       </div>
     </div>

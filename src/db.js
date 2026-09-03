@@ -2,17 +2,24 @@ import Dexie from 'dexie'
 
 export const EXERCISE_CATEGORIES = ['kettlebell', 'mobility', 'stretching']
 export const TIMER_MODES = ['open_work', 'interval', 'pails_rails']
-export const PAILS_RAILS_SIDES = ['bilateral', 'left_right']
+/** Interval's per-round side split. Pails/Rails is always 'unilateral' - not user-selectable. */
+export const INTERVAL_SIDE_MODES = ['bilateral', 'unilateral']
 export const SIDE_MODES = ['bilateral', 'blocked', 'alternating']
 
-export const DEFAULT_INTERVAL_CONFIG = { workSeconds: 30, restSeconds: 15, rounds: 5 }
+export const DEFAULT_INTERVAL_CONFIG = {
+  workSeconds: 30,
+  restSeconds: 15,
+  rounds: 5,
+  sideMode: 'bilateral',
+}
 export const DEFAULT_PAILS_RAILS_CONFIG = {
   holdSeconds: 15,
   rampSeconds: 5,
   pailsHoldSeconds: 20,
   railsHoldSeconds: 20,
   rounds: 3,
-  side: 'bilateral',
+  // Pails/Rails movements are inherently single-sided - constant, not user-editable.
+  sideMode: 'unilateral',
 }
 export const DEFAULT_OPEN_WORK_CONFIG = { sessionTargetSeconds: 1200, restSeconds: 120 }
 
@@ -32,6 +39,7 @@ export function defaultTimerModeForCategory(category) {
  * @property {number} workSeconds
  * @property {number} restSeconds
  * @property {number} rounds
+ * @property {'bilateral'|'unilateral'} sideMode unilateral inserts a Left/Right side step within each round
  *
  * @typedef {Object} PailsRailsConfig
  * @property {number} holdSeconds initial static stretch hold at end-range, before the ramp
@@ -39,7 +47,7 @@ export function defaultTimerModeForCategory(category) {
  * @property {number} pailsHoldSeconds
  * @property {number} railsHoldSeconds
  * @property {number} rounds
- * @property {'bilateral'|'left_right'} side
+ * @property {'unilateral'} sideMode always unilateral - Pails/Rails movements are single-sided
  *
  * @typedef {Object} OpenWorkConfig
  * @property {number} sessionTargetSeconds hard-stop total session length
@@ -160,6 +168,33 @@ db.version(3)
         delete exercise.openWork
         delete exercise.interval
         delete exercise.pailsRails
+      })
+  })
+
+// intervalConfig gains sideMode (bilateral/unilateral). pailsRailsConfig's old
+// side ('bilateral'/'left_right') enum is replaced by a constant sideMode of
+// 'unilateral' - Pails/Rails movements are always single-sided, so the split is no
+// longer a per-workout choice; the switch-cue mechanism that already showed
+// Left/Right per round is now unconditional.
+db.version(4)
+  .stores({
+    exercises: '++id, name, *categories',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade(async (tx) => {
+    await tx
+      .table('workoutTemplates')
+      .toCollection()
+      .modify((template) => {
+        if (template.intervalConfig) {
+          template.intervalConfig.sideMode = template.intervalConfig.sideMode ?? 'bilateral'
+        }
+        if (template.pailsRailsConfig) {
+          delete template.pailsRailsConfig.side
+          template.pailsRailsConfig.sideMode = 'unilateral'
+        }
       })
   })
 

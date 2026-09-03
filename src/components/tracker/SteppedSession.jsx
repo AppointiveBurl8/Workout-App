@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
-import { useInterval } from '../../lib/useInterval'
-import { dangerButtonClass, iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
+import {
+  dangerButtonClass,
+  iconButtonClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from '../../lib/ui'
 import IntervalStep from './IntervalStep'
 import PailsRailsStep from './PailsRailsStep'
-
-const TRANSITION_SECONDS = 10
 
 function roundsLabel(rounds) {
   return `${rounds} round${rounds === 1 ? '' : 's'}`
@@ -48,31 +50,11 @@ function TransitionScreen({ nextExercise, summary, remainingSeconds, paused, onT
   )
 }
 
-export default function SteppedSession({ steps, timerMode, config, onConfigChange, onEnd }) {
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [paused, setPaused] = useState(false)
-  const [transitioning, setTransitioning] = useState(false)
-  const [transitionRemaining, setTransitionRemaining] = useState(TRANSITION_SECONDS)
-  const [sessionElapsedSeconds, setSessionElapsedSeconds] = useState(0)
-
+export default function SteppedSession({ steps, session, dispatch }) {
+  const { timerMode, currentIndex, transitioning, transitionRemaining, paused, started, stepState } = session
+  const config = timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
   const currentExercise = steps[currentIndex]
   const nextExercise = steps[currentIndex + 1]
-  const isLast = currentIndex === steps.length - 1
-
-  useInterval(() => setSessionElapsedSeconds((s) => s + 1), paused ? null : 1000)
-
-  useInterval(
-    () => {
-      if (transitionRemaining <= 1) {
-        setTransitioning(false)
-        setCurrentIndex((i) => i + 1)
-        setTransitionRemaining(TRANSITION_SECONDS)
-      } else {
-        setTransitionRemaining((s) => s - 1)
-      }
-    },
-    transitioning && !paused ? 1000 : null,
-  )
 
   useEffect(() => {
     if (transitioning && transitionRemaining <= 3 && transitionRemaining >= 1) {
@@ -80,30 +62,12 @@ export default function SteppedSession({ steps, timerMode, config, onConfigChang
     }
   }, [transitioning, transitionRemaining])
 
-  const handleStepComplete = () => {
-    if (isLast) {
-      onEnd({ durationSeconds: sessionElapsedSeconds, setsCompleted: null })
-      return
-    }
-    setTransitionRemaining(TRANSITION_SECONDS)
-    setTransitioning(true)
-  }
-
-  const skipWait = () => {
-    setTransitioning(false)
-    setTransitionRemaining(TRANSITION_SECONDS)
-    setCurrentIndex((i) => i + 1)
-  }
-
-  const goPrev = () => setCurrentIndex((i) => Math.max(0, i - 1))
-  const goNext = () => setCurrentIndex((i) => Math.min(steps.length - 1, i + 1))
-
   const handleEndWorkout = () => {
     if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
-    onEnd({ durationSeconds: sessionElapsedSeconds, setsCompleted: null })
+    dispatch({ type: 'END_WORKOUT' })
   }
 
-  const stepKey = `${currentIndex}-${currentExercise.id}`
+  const adjustConfig = (field, value) => dispatch({ type: 'ADJUST_CONFIG', field, value })
 
   return (
     <div className="flex flex-1 flex-col">
@@ -113,8 +77,8 @@ export default function SteppedSession({ steps, timerMode, config, onConfigChang
           summary={summarize(timerMode, config)}
           remainingSeconds={transitionRemaining}
           paused={paused}
-          onTogglePause={() => setPaused((p) => !p)}
-          onSkip={skipWait}
+          onTogglePause={() => dispatch({ type: 'TOGGLE_PAUSE' })}
+          onSkip={() => dispatch({ type: 'SKIP_TRANSITION' })}
         />
       ) : (
         <>
@@ -125,39 +89,58 @@ export default function SteppedSession({ steps, timerMode, config, onConfigChang
             </p>
           )}
 
+          {/* Freshly initialized stepState already shows the full configured duration
+              at 0 elapsed, so the same step component doubles as the paused "ready"
+              screen before Start is tapped (item 7) - only the transport row changes. */}
           {timerMode === 'interval' ? (
-            <IntervalStep
-              key={stepKey}
-              config={config}
-              paused={paused}
-              onComplete={handleStepComplete}
-              onConfigChange={onConfigChange}
-            />
+            <IntervalStep key={currentIndex} config={config} stepState={stepState} onAdjustConfig={adjustConfig} />
           ) : (
-            <PailsRailsStep
-              key={stepKey}
-              config={config}
-              paused={paused}
-              onComplete={handleStepComplete}
-              onConfigChange={onConfigChange}
-            />
+            <PailsRailsStep key={currentIndex} config={config} stepState={stepState} onAdjustConfig={adjustConfig} />
           )}
 
           <div className="flex items-center justify-center gap-3 pb-4">
-            <button type="button" className={iconButtonClass} onClick={goPrev} disabled={currentIndex === 0}>
-              ⏮ Prev
-            </button>
-            <button type="button" className={secondaryButtonClass} onClick={() => setPaused((p) => !p)}>
-              {paused ? 'Resume' : 'Pause'}
-            </button>
-            <button
-              type="button"
-              className={iconButtonClass}
-              onClick={goNext}
-              disabled={currentIndex === steps.length - 1}
-            >
-              Next ⏭
-            </button>
+            {started ? (
+              <>
+                <button
+                  type="button"
+                  className={iconButtonClass}
+                  onClick={() => dispatch({ type: 'PREV' })}
+                  disabled={currentIndex === 0}
+                >
+                  ⏮ Prev
+                </button>
+                <button
+                  type="button"
+                  className={secondaryButtonClass}
+                  onClick={() => dispatch({ type: 'TOGGLE_PAUSE' })}
+                >
+                  {paused ? 'Resume' : 'Pause'}
+                </button>
+                <button
+                  type="button"
+                  className={iconButtonClass}
+                  onClick={() => dispatch({ type: 'SKIP_PHASE' })}
+                >
+                  Skip
+                </button>
+                <button
+                  type="button"
+                  className={iconButtonClass}
+                  onClick={() => dispatch({ type: 'NEXT' })}
+                  disabled={currentIndex === steps.length - 1}
+                >
+                  Next ⏭
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className={`${primaryButtonClass} px-10`}
+                onClick={() => dispatch({ type: 'START' })}
+              >
+                Start
+              </button>
+            )}
           </div>
         </>
       )}

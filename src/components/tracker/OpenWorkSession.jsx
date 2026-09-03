@@ -1,63 +1,10 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { SIDE_MODE_LABELS } from '../../lib/categories'
 import { formatMMSS } from '../../lib/formatDuration'
-import { useInterval, useOnceWhen } from '../../lib/useInterval'
 import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
-
-function init() {
-  return {
-    phase: 'work', // 'work' | 'rest' | 'complete'
-    workElapsedSeconds: 0,
-    restRemainingSeconds: 0,
-    sessionElapsedSeconds: 0,
-    setsCompleted: 0,
-  }
-}
-
-function reducer(state, action) {
-  switch (action.type) {
-    case 'TICK': {
-      if (state.phase === 'complete') return state
-      const { sessionTargetSeconds } = action.config
-      const sessionElapsedSeconds = state.sessionElapsedSeconds + 1
-      if (sessionElapsedSeconds >= sessionTargetSeconds) {
-        return { ...state, phase: 'complete', sessionElapsedSeconds: sessionTargetSeconds }
-      }
-      if (state.phase === 'work') {
-        return { ...state, sessionElapsedSeconds, workElapsedSeconds: state.workElapsedSeconds + 1 }
-      }
-      const restRemainingSeconds = state.restRemainingSeconds - 1
-      if (restRemainingSeconds <= 0) {
-        return {
-          ...state,
-          sessionElapsedSeconds,
-          phase: 'work',
-          workElapsedSeconds: 0,
-          restRemainingSeconds: 0,
-        }
-      }
-      return { ...state, sessionElapsedSeconds, restRemainingSeconds }
-    }
-    case 'END_SET': {
-      if (state.phase !== 'work') return state
-      return {
-        ...state,
-        phase: 'rest',
-        restRemainingSeconds: action.restSeconds,
-        setsCompleted: state.setsCompleted + 1,
-      }
-    }
-    case 'ADJUST_REST_REMAINING':
-      return { ...state, restRemainingSeconds: Math.max(1, state.restRemainingSeconds + action.delta) }
-    case 'SET_SETS_COMPLETED':
-      return { ...state, setsCompleted: Math.max(0, action.value) }
-    default:
-      return state
-  }
-}
 
 function MovementRow({ exercise, detail }) {
   return (
@@ -117,16 +64,12 @@ function MovementReference({ exercises, sideMode }) {
   )
 }
 
-export default function OpenWorkSession({ exercises, config, sideMode, onConfigChange, onEnd }) {
-  const [state, dispatch] = useReducer(reducer, undefined, init)
-  const [paused, setPaused] = useState(false)
+export default function OpenWorkSession({ exercises, session, dispatch }) {
+  const { openWork: state, started, paused, config } = session
+  const openWorkConfig = config.openWorkConfig
+  const sideMode = config.sideMode
   const complete = state.phase === 'complete'
   const prevPhaseRef = useRef(state.phase)
-
-  useInterval(() => dispatch({ type: 'TICK', config }), paused || complete ? null : 1000)
-  useOnceWhen(complete, () =>
-    onEnd({ durationSeconds: state.sessionElapsedSeconds, setsCompleted: state.setsCompleted }),
-  )
 
   useEffect(() => {
     const prevPhase = prevPhaseRef.current
@@ -142,16 +85,11 @@ export default function OpenWorkSession({ exercises, config, sideMode, onConfigC
     prevPhaseRef.current = state.phase
   }, [state.phase])
 
-  const setRestSeconds = (value) => {
-    if (state.phase === 'rest') {
-      dispatch({ type: 'ADJUST_REST_REMAINING', delta: value - config.restSeconds })
-    }
-    onConfigChange({ ...config, restSeconds: value })
-  }
+  const setRestSeconds = (value) => dispatch({ type: 'ADJUST_OPEN_WORK_CONFIG', field: 'restSeconds', value })
 
   const handleEndWorkout = () => {
     if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
-    onEnd({ durationSeconds: state.sessionElapsedSeconds, setsCompleted: state.setsCompleted })
+    dispatch({ type: 'END_WORKOUT' })
   }
 
   const phaseLabel = complete ? 'Session complete' : state.phase === 'work' ? 'Work' : 'Rest'
@@ -166,9 +104,7 @@ export default function OpenWorkSession({ exercises, config, sideMode, onConfigC
       <div className="flex flex-col items-center gap-3 text-center">
         <p className={`text-xl font-semibold uppercase tracking-wide ${phaseColor}`}>{phaseLabel}</p>
         <p className="text-8xl font-bold tabular-nums">
-          {state.phase === 'rest'
-            ? formatMMSS(state.restRemainingSeconds)
-            : formatMMSS(state.workElapsedSeconds)}
+          {state.phase === 'rest' ? formatMMSS(state.restRemainingSeconds) : formatMMSS(state.workElapsedSeconds)}
         </p>
       </div>
 
@@ -176,16 +112,16 @@ export default function OpenWorkSession({ exercises, config, sideMode, onConfigC
         <div className="mb-1.5 flex justify-between text-sm text-neutral-500 dark:text-neutral-400">
           <span>Session</span>
           <span>
-            {formatMMSS(state.sessionElapsedSeconds)} / {formatMMSS(config.sessionTargetSeconds)}
+            {formatMMSS(state.sessionElapsedSeconds)} / {formatMMSS(openWorkConfig.sessionTargetSeconds)}
           </span>
         </div>
-        <ProgressBar value={state.sessionElapsedSeconds / config.sessionTargetSeconds} />
+        <ProgressBar value={state.sessionElapsedSeconds / openWorkConfig.sessionTargetSeconds} />
       </div>
 
       <div className="flex flex-wrap justify-center gap-3">
         <AdjustableChip
           label="Rest"
-          value={config.restSeconds}
+          value={openWorkConfig.restSeconds}
           formatValue={formatMMSS}
           step={5}
           min={0}
@@ -194,12 +130,12 @@ export default function OpenWorkSession({ exercises, config, sideMode, onConfigC
         />
         <AdjustableChip
           label="Session target"
-          value={config.sessionTargetSeconds}
+          value={openWorkConfig.sessionTargetSeconds}
           formatValue={formatMMSS}
           step={60}
           min={60}
           disabled={complete}
-          onChange={(v) => onConfigChange({ ...config, sessionTargetSeconds: v })}
+          onChange={(v) => dispatch({ type: 'ADJUST_OPEN_WORK_CONFIG', field: 'sessionTargetSeconds', value: v })}
         />
         <AdjustableChip
           label="Sets"
@@ -213,22 +149,30 @@ export default function OpenWorkSession({ exercises, config, sideMode, onConfigC
       </div>
 
       <div className="flex justify-center gap-3">
-        <button
-          type="button"
-          className={secondaryButtonClass}
-          disabled={complete}
-          onClick={() => setPaused((p) => !p)}
-        >
-          {paused ? 'Resume' : 'Pause'}
-        </button>
-        <button
-          type="button"
-          className={primaryButtonClass}
-          disabled={complete || state.phase !== 'work'}
-          onClick={() => dispatch({ type: 'END_SET', restSeconds: config.restSeconds })}
-        >
-          End Set / Start Rest
-        </button>
+        {started ? (
+          <>
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              disabled={complete}
+              onClick={() => dispatch({ type: 'TOGGLE_PAUSE' })}
+            >
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              disabled={complete || state.phase !== 'work'}
+              onClick={() => dispatch({ type: 'END_SET' })}
+            >
+              End Set / Start Rest
+            </button>
+          </>
+        ) : (
+          <button type="button" className={`${primaryButtonClass} px-10`} onClick={() => dispatch({ type: 'START' })}>
+            Start
+          </button>
+        )}
       </div>
 
       <div className="flex justify-center">
