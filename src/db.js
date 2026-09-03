@@ -15,6 +15,7 @@ export const PAILS_RAILS_SIDES = ['bilateral', 'left_right']
  * @property {number} rounds
  *
  * @typedef {Object} PailsRailsConfig
+ * @property {number} holdSeconds initial static stretch hold at end-range, before the ramp
  * @property {number} rampSeconds
  * @property {number} pailsHoldSeconds
  * @property {number} railsHoldSeconds
@@ -58,6 +59,28 @@ db.version(1).stores({
   workoutTemplates: '++id, name, category',
   loggedSessions: '++id, date, templateId, category',
 })
+
+db.version(2)
+  .stores({
+    exercises: '++id, name, category, timerMode',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade(async (tx) => {
+    await tx
+      .table('exercises')
+      .toCollection()
+      .modify((exercise) => {
+        if (
+          exercise.timerMode === 'pails_rails' &&
+          exercise.pailsRails &&
+          exercise.pailsRails.holdSeconds == null
+        ) {
+          exercise.pailsRails.holdSeconds = 15
+        }
+      })
+  })
 
 // ---------------- Exercise ----------------
 
@@ -155,4 +178,38 @@ export async function updateLoggedSession(id, changes) {
 
 export async function deleteLoggedSession(id) {
   return db.loggedSessions.delete(id)
+}
+
+// ---------------- Settings ----------------
+
+export async function getSetting(key) {
+  const row = await db.settings.get(key)
+  return row ? row.value : undefined
+}
+
+export async function setSetting(key, value) {
+  return db.settings.put({ key, value })
+}
+
+// ---------------- Backup / Restore ----------------
+
+export async function exportAllData() {
+  const [exercises, templates, sessions] = await Promise.all([
+    db.exercises.toArray(),
+    db.workoutTemplates.toArray(),
+    db.loggedSessions.toArray(),
+  ])
+  return { exportedAt: new Date().toISOString(), exercises, templates, sessions }
+}
+
+/** Replaces all data with the given bundle. Ids are preserved so cross-table references (exerciseIds, templateId) stay valid. */
+export async function importAllData({ exercises, templates, sessions }) {
+  await db.transaction('rw', db.exercises, db.workoutTemplates, db.loggedSessions, async () => {
+    await db.exercises.clear()
+    await db.workoutTemplates.clear()
+    await db.loggedSessions.clear()
+    if (exercises.length) await db.exercises.bulkAdd(exercises)
+    if (templates.length) await db.workoutTemplates.bulkAdd(templates)
+    if (sessions.length) await db.loggedSessions.bulkAdd(sessions)
+  })
 }

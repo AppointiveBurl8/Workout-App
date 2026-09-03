@@ -9,6 +9,7 @@ export function defaultExerciseDraft(category = EXERCISE_CATEGORIES[0]) {
     openWork: { restSeconds: 30, repsLabel: '' },
     interval: { workSeconds: 30, restSeconds: 15, rounds: 5 },
     pailsRails: {
+      holdSeconds: 15,
       rampSeconds: 5,
       pailsHoldSeconds: 20,
       railsHoldSeconds: 20,

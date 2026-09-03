@@ -138,7 +138,20 @@ export default function ExerciseForm({ draft, onChange }) {
 
       {draft.timerMode === 'pails_rails' && (
         <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass} htmlFor="pr-hold">
+                Stretch hold (sec)
+              </label>
+              <input
+                id="pr-hold"
+                type="number"
+                min="0"
+                className={inputClass}
+                value={draft.pailsRails.holdSeconds}
+                onChange={(e) => updateMode('pailsRails', 'holdSeconds', Number(e.target.value))}
+              />
+            </div>
             <div>
               <label className={labelClass} htmlFor="pr-ramp">
                 Ramp (sec)

@@ -17,8 +17,8 @@ function summarize(exercise) {
     return `Work ${formatMMSS(workSeconds)} / Rest ${formatMMSS(restSeconds)} × ${roundsLabel(rounds)}`
   }
   if (exercise.timerMode === 'pails_rails') {
-    const { pailsHoldSeconds, railsHoldSeconds, rounds } = exercise.pailsRails
-    return `PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
+    const { holdSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = exercise.pailsRails
+    return `Stretch ${formatMMSS(holdSeconds ?? 15)} / PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
   }
   return 'Open work — go at your own pace'
 }

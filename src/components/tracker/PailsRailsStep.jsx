@@ -5,14 +5,23 @@ import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
 
 const SWITCH_SECONDS = 3
-const PHASE_LABELS = { ramp: 'Ramp', pails: 'PAILs Hold', switch: 'Switch', rails: 'RAILs Hold' }
+const DEFAULT_HOLD_SECONDS = 15
+const PHASE_LABELS = {
+  stretch: 'Stretch Hold',
+  ramp: 'Ramp',
+  pails: 'PAILs Hold',
+  switch: 'Switch',
+  rails: 'RAILs Hold',
+}
 
 function init(exercise) {
   const cfg = exercise.pailsRails
+  const holdSeconds = cfg.holdSeconds ?? DEFAULT_HOLD_SECONDS
   return {
-    phase: 'ramp',
+    phase: 'stretch',
     round: 1,
-    remainingSeconds: cfg.rampSeconds,
+    remainingSeconds: holdSeconds,
+    holdSeconds,
     rampSeconds: cfg.rampSeconds,
     pailsHoldSeconds: cfg.pailsHoldSeconds,
     railsHoldSeconds: cfg.railsHoldSeconds,
@@ -28,6 +37,9 @@ function reducer(state, action) {
       if (state.done) return state
       const remainingSeconds = state.remainingSeconds - 1
       if (remainingSeconds > 0) return { ...state, remainingSeconds }
+      if (state.phase === 'stretch') {
+        return { ...state, phase: 'ramp', remainingSeconds: state.rampSeconds }
+      }
       if (state.phase === 'ramp') {
         return { ...state, phase: 'pails', remainingSeconds: state.pailsHoldSeconds }
       }
@@ -41,12 +53,21 @@ function reducer(state, action) {
       if (state.round < state.rounds) {
         return {
           ...state,
-          phase: 'ramp',
+          phase: 'stretch',
           round: state.round + 1,
-          remainingSeconds: state.rampSeconds,
+          remainingSeconds: state.holdSeconds,
         }
       }
       return { ...state, done: true, remainingSeconds: 0 }
+    }
+    case 'SET_HOLD_SECONDS': {
+      const delta = action.value - state.holdSeconds
+      return {
+        ...state,
+        holdSeconds: action.value,
+        remainingSeconds:
+          state.phase === 'stretch' ? Math.max(1, state.remainingSeconds + delta) : state.remainingSeconds,
+      }
     }
     case 'SET_RAMP_SECONDS': {
       const delta = action.value - state.rampSeconds
@@ -89,6 +110,7 @@ export default function PailsRailsStep({ exercise, paused, onComplete }) {
   useOnceWhen(state.done, onComplete)
 
   const phaseTotal = {
+    stretch: state.holdSeconds,
     ramp: state.rampSeconds,
     pails: state.pailsHoldSeconds,
     switch: SWITCH_SECONDS,
@@ -116,6 +138,14 @@ export default function PailsRailsStep({ exercise, paused, onComplete }) {
       </p>
 
       <div className="flex flex-wrap justify-center gap-3">
+        <AdjustableChip
+          label="Stretch hold"
+          value={state.holdSeconds}
+          formatValue={formatMMSS}
+          step={5}
+          min={5}
+          onChange={(v) => dispatch({ type: 'SET_HOLD_SECONDS', value: v })}
+        />
         <AdjustableChip
           label="Ramp"
           value={state.rampSeconds}
