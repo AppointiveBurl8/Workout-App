@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import CategoryBadge from '../components/CategoryBadge'
+import BackupControls from '../components/log/BackupControls'
 import LogEntryForm from '../components/log/LogEntryForm'
 import { EXERCISE_CATEGORIES, getLoggedSessions, getWorkoutTemplates } from '../db'
 import { CATEGORY_LABELS, CATEGORY_TAB_ACTIVE_CLASSES } from '../lib/categories'
@@ -84,6 +85,8 @@ export default function Log() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <h1 className="text-xl font-semibold">Log</h1>
+
+      <BackupControls sessionCount={allSessions.length} />
 
       <div className="grid grid-cols-3 gap-2">
         <StatTile label="This week" value={weekCount} />
