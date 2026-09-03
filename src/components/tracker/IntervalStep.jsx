@@ -1,4 +1,5 @@
 import { useReducer } from 'react'
+import { usePhaseTransitionCues } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import { useInterval, useOnceWhen } from '../../lib/useInterval'
 import AdjustableChip from './AdjustableChip'
@@ -66,6 +67,7 @@ export default function IntervalStep({ exercise, paused, onComplete }) {
 
   useInterval(() => dispatch({ type: 'TICK' }), paused || state.done ? null : 1000)
   useOnceWhen(state.done, onComplete)
+  usePhaseTransitionCues(state.phase, state.round, state.done)
 
   const phaseTotal = state.phase === 'work' ? state.workSeconds : state.restSeconds
 

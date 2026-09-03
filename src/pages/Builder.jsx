@@ -5,6 +5,7 @@ import ExerciseListItem from '../components/ExerciseListItem'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import { getExercises } from '../db'
+import { unlockAudio } from '../lib/audioCues'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 
 export default function Builder() {
@@ -37,6 +38,7 @@ export default function Builder() {
   }
 
   const handleStartWorkout = () => {
+    unlockAudio()
     navigate('/tracker', { state: { source: 'builder', exerciseIds } })
   }
 

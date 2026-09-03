@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { unlockAudio } from '../lib/audioCues'
 import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 import CategoryBadge from './CategoryBadge'
 
@@ -22,6 +23,7 @@ export default function TemplateCard({ template, onEdit, onDuplicate, onArchive 
         <Link
           to={`/tracker?templateId=${template.id}`}
           className={`${primaryButtonClass} text-center`}
+          onClick={unlockAudio}
         >
           Start
         </Link>

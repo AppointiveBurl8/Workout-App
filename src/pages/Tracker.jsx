@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import MuteToggle from '../components/tracker/MuteToggle'
 import OpenWorkSession from '../components/tracker/OpenWorkSession'
 import SteppedSession from '../components/tracker/SteppedSession'
 import { getExercises, getWorkoutTemplate } from '../db'
@@ -107,7 +108,11 @@ export default function Tracker() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <h1 className="px-6 pt-6 text-center text-xl font-semibold">{workoutName}</h1>
+      <div className="flex items-center justify-between px-6 pt-6">
+        <div className="w-11" aria-hidden="true" />
+        <h1 className="text-center text-xl font-semibold">{workoutName}</h1>
+        <MuteToggle />
+      </div>
       {isOpenWorkSession ? (
         <OpenWorkSession
           exercises={steps}

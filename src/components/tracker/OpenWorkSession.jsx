@@ -1,4 +1,5 @@
-import { useReducer, useState } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
+import { playTone } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import { useInterval, useOnceWhen } from '../../lib/useInterval'
 import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
@@ -76,11 +77,26 @@ export default function OpenWorkSession({ exercises, sessionTargetSeconds, onEnd
   const [state, dispatch] = useReducer(reducer, { exercises, sessionTargetSeconds }, init)
   const [paused, setPaused] = useState(false)
   const complete = state.phase === 'complete'
+  const prevPhaseRef = useRef(state.phase)
 
   useInterval(() => dispatch({ type: 'TICK' }), paused || complete ? null : 1000)
   useOnceWhen(complete, () =>
     onEnd({ durationSeconds: state.sessionElapsedSeconds, setsCompleted: state.setsCompleted }),
   )
+
+  useEffect(() => {
+    const prevPhase = prevPhaseRef.current
+    if (state.phase !== prevPhase) {
+      if (state.phase === 'complete') {
+        playTone('sessionComplete')
+      } else if (prevPhase === 'work' && state.phase === 'rest') {
+        playTone('roundComplete') // End Set pressed - a full set just finished
+      } else if (prevPhase === 'rest' && state.phase === 'work') {
+        playTone('transition') // rest timer expired, back to work
+      }
+    }
+    prevPhaseRef.current = state.phase
+  }, [state.phase])
 
   const handleEndWorkout = () => {
     if (!window.confirm('End this workout now? It will be logged with the time so far.')) return

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { playTone } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import { useInterval } from '../../lib/useInterval'
 import { dangerButtonClass, iconButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
@@ -88,6 +89,12 @@ export default function SteppedSession({ steps, onEnd }) {
     },
     transitioning && !paused ? 1000 : null,
   )
+
+  useEffect(() => {
+    if (transitioning && transitionRemaining <= 3 && transitionRemaining >= 1) {
+      playTone('tick')
+    }
+  }, [transitioning, transitionRemaining])
 
   const handleStepComplete = () => {
     if (isLast) {
