@@ -13,6 +13,14 @@ const PHASE_LABELS = {
   switch: 'Switch',
   rails: 'RAILs Hold',
 }
+/** Sustained holds get their own color; the brief ramp/switch transitions share a neutral one. */
+const PHASE_COLORS = {
+  stretch: { label: 'text-yellow-600 dark:text-yellow-400', bar: 'bg-yellow-500' },
+  ramp: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
+  pails: { label: 'text-green-600 dark:text-green-400', bar: 'bg-green-600' },
+  switch: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
+  rails: { label: 'text-red-600 dark:text-red-400', bar: 'bg-red-600' },
+}
 /** Which config duration each phase is counting down, so a chip edit can adjust the phase in flight. */
 const PHASE_CONFIG_FIELD = {
   stretch: 'holdSeconds',
@@ -86,7 +94,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
-      <p className="text-xl font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+      <p className={`text-xl font-semibold uppercase tracking-wide ${PHASE_COLORS[state.phase].label}`}>
         {PHASE_LABELS[state.phase]}
       </p>
       {activeSide && (
@@ -98,7 +106,7 @@ export default function PailsRailsStep({ config, paused, onComplete, onConfigCha
       <div className="w-full max-w-xs">
         <ProgressBar
           value={phaseTotal > 0 ? 1 - state.remainingSeconds / phaseTotal : 1}
-          colorClassName="bg-emerald-600"
+          colorClassName={PHASE_COLORS[state.phase].bar}
         />
       </div>
       <p className="text-base text-neutral-500 dark:text-neutral-400">
