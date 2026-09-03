@@ -60,6 +60,17 @@ export default function BackupControls({ sessionCount }) {
       setImportError('That file doesn’t look like a workout backup (missing exercises/templates/sessions).')
       return
     }
+    // Backups taken before timer mode moved onto the workout have a different shape.
+    // Restoring one would half-work silently, so refuse it outright instead.
+    const isPrePatchBackup =
+      data.exercises.some((exercise) => 'timerMode' in exercise) ||
+      data.templates.some((template) => !template.defaultTimerMode)
+    if (isPrePatchBackup) {
+      setImportError(
+        'That backup was taken before exercises supported multiple categories and workouts owned their timer settings, so it can’t be restored. Export a fresh backup from this version instead.',
+      )
+      return
+    }
 
     const dateLabel = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : 'an unknown date'
     if (!window.confirm(`This will replace your current data with the backup from ${dateLabel}. Continue?`)) {

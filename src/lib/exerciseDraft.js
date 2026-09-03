@@ -1,32 +1,26 @@
-import { EXERCISE_CATEGORIES } from '../db'
-
-export function defaultExerciseDraft(category = EXERCISE_CATEGORIES[0]) {
+export function defaultExerciseDraft(category) {
   return {
     name: '',
-    category,
-    timerMode: 'interval',
+    categories: category ? [category] : [],
+    repsLabel: '',
     notes: '',
-    openWork: { restSeconds: 30, repsLabel: '' },
-    interval: { workSeconds: 30, restSeconds: 15, rounds: 5 },
-    pailsRails: {
-      holdSeconds: 15,
-      rampSeconds: 5,
-      pailsHoldSeconds: 20,
-      railsHoldSeconds: 20,
-      rounds: 3,
-      side: 'bilateral',
-    },
+  }
+}
+
+export function toExerciseDraft(exercise) {
+  return {
+    name: exercise.name ?? '',
+    categories: exercise.categories ?? [],
+    repsLabel: exercise.repsLabel ?? '',
+    notes: exercise.notes ?? '',
   }
 }
 
 export function buildExercisePayload(draft) {
   return {
     name: draft.name.trim(),
-    category: draft.category,
-    timerMode: draft.timerMode,
+    categories: draft.categories,
+    repsLabel: draft.repsLabel?.trim() ?? '',
     notes: draft.notes?.trim() ?? '',
-    openWork: draft.timerMode === 'open_work' ? draft.openWork : null,
-    interval: draft.timerMode === 'interval' ? draft.interval : null,
-    pailsRails: draft.timerMode === 'pails_rails' ? draft.pailsRails : null,
   }
 }

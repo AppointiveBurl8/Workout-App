@@ -12,26 +12,29 @@ function roundsLabel(rounds) {
   return `${rounds} round${rounds === 1 ? '' : 's'}`
 }
 
-function summarize(exercise) {
-  if (exercise.timerMode === 'interval') {
-    const { workSeconds, restSeconds, rounds } = exercise.interval
+/** One config runs every exercise in the session, so the summary describes the session, not the movement. */
+function summarize(timerMode, config) {
+  if (timerMode === 'interval') {
+    const { workSeconds, restSeconds, rounds } = config
     return `Work ${formatMMSS(workSeconds)} / Rest ${formatMMSS(restSeconds)} × ${roundsLabel(rounds)}`
   }
-  if (exercise.timerMode === 'pails_rails') {
-    const { holdSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = exercise.pailsRails
-    return `Stretch ${formatMMSS(holdSeconds ?? 15)} / PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
-  }
-  return 'Open work — go at your own pace'
+  const { holdSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = config
+  return `Stretch ${formatMMSS(holdSeconds)} / PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
 }
 
-function TransitionScreen({ nextExercise, remainingSeconds, paused, onTogglePause, onSkip }) {
+function TransitionScreen({ nextExercise, summary, remainingSeconds, paused, onTogglePause, onSkip }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 p-6 text-center">
       <p className="text-base font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         Up Next
       </p>
       <p className="text-3xl font-semibold">{nextExercise.name}</p>
-      <p className="text-base text-neutral-500 dark:text-neutral-400">{summarize(nextExercise)}</p>
+      {nextExercise.repsLabel && (
+        <p className="-mt-3 text-base text-neutral-600 dark:text-neutral-300">
+          {nextExercise.repsLabel}
+        </p>
+      )}
+      <p className="text-base text-neutral-500 dark:text-neutral-400">{summary}</p>
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
       <div className="flex flex-col gap-3 sm:flex-row">
         <button type="button" className={secondaryButtonClass} onClick={onTogglePause}>
@@ -45,26 +48,7 @@ function TransitionScreen({ nextExercise, remainingSeconds, paused, onTogglePaus
   )
 }
 
-function OpenWorkFallbackStep({ exercise, paused, onComplete }) {
-  const [elapsed, setElapsed] = useState(0)
-  useInterval(() => setElapsed((s) => s + 1), paused ? null : 1000)
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
-      <p className="text-xl font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-        Open Work
-      </p>
-      {exercise.openWork?.repsLabel && (
-        <p className="text-base text-neutral-500 dark:text-neutral-400">{exercise.openWork.repsLabel}</p>
-      )}
-      <p className="text-8xl font-bold tabular-nums">{formatMMSS(elapsed)}</p>
-      <button type="button" className={primaryButtonClass} onClick={onComplete}>
-        Done, next exercise
-      </button>
-    </div>
-  )
-}
-
-export default function SteppedSession({ steps, onEnd }) {
+export default function SteppedSession({ steps, timerMode, config, onConfigChange, onEnd }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [transitioning, setTransitioning] = useState(false)
@@ -126,6 +110,7 @@ export default function SteppedSession({ steps, onEnd }) {
       {transitioning && nextExercise ? (
         <TransitionScreen
           nextExercise={nextExercise}
+          summary={summarize(timerMode, config)}
           remainingSeconds={transitionRemaining}
           paused={paused}
           onTogglePause={() => setPaused((p) => !p)}
@@ -134,29 +119,27 @@ export default function SteppedSession({ steps, onEnd }) {
       ) : (
         <>
           <p className="px-6 pt-4 text-center text-xl font-medium">{currentExercise.name}</p>
+          {currentExercise.repsLabel && (
+            <p className="px-6 pt-1 text-center text-sm text-neutral-500 dark:text-neutral-400">
+              {currentExercise.repsLabel}
+            </p>
+          )}
 
-          {currentExercise.timerMode === 'interval' && (
+          {timerMode === 'interval' ? (
             <IntervalStep
               key={stepKey}
-              exercise={currentExercise}
+              config={config}
               paused={paused}
               onComplete={handleStepComplete}
+              onConfigChange={onConfigChange}
             />
-          )}
-          {currentExercise.timerMode === 'pails_rails' && (
+          ) : (
             <PailsRailsStep
               key={stepKey}
-              exercise={currentExercise}
+              config={config}
               paused={paused}
               onComplete={handleStepComplete}
-            />
-          )}
-          {currentExercise.timerMode === 'open_work' && (
-            <OpenWorkFallbackStep
-              key={stepKey}
-              exercise={currentExercise}
-              paused={paused}
-              onComplete={handleStepComplete}
+              onConfigChange={onConfigChange}
             />
           )}
 

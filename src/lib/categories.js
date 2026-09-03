@@ -22,3 +22,9 @@ export const TIMER_MODE_LABELS = {
   interval: 'Interval',
   pails_rails: 'PAILs/RAILs',
 }
+
+export const SIDE_MODE_LABELS = {
+  bilateral: 'Bilateral',
+  blocked: 'Blocked (one side, then the other)',
+  alternating: 'Alternating (both sides per movement)',
+}

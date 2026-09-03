@@ -1,4 +1,3 @@
-import { TIMER_MODE_LABELS } from '../lib/categories'
 import { iconButtonClass } from '../lib/ui'
 import CategoryBadge from './CategoryBadge'
 
@@ -16,11 +15,16 @@ export default function ExerciseListItem({
       <div>
         <p className="text-sm font-medium">{exercise ? exercise.name : 'Unknown exercise'}</p>
         {exercise && (
-          <div className="mt-0.5 flex items-center gap-1.5">
-            {showCategory && <CategoryBadge category={exercise.category} />}
-            <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              {TIMER_MODE_LABELS[exercise.timerMode]}
-            </span>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            {showCategory &&
+              (exercise.categories ?? []).map((category) => (
+                <CategoryBadge key={category} category={category} />
+              ))}
+            {exercise.repsLabel && (
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                {exercise.repsLabel}
+              </span>
+            )}
           </div>
         )}
       </div>

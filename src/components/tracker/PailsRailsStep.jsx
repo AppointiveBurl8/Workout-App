@@ -6,7 +6,6 @@ import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
 
 const SWITCH_SECONDS = 3
-const DEFAULT_HOLD_SECONDS = 15
 const PHASE_LABELS = {
   stretch: 'Stretch Hold',
   ramp: 'Ramp',
@@ -14,112 +13,76 @@ const PHASE_LABELS = {
   switch: 'Switch',
   rails: 'RAILs Hold',
 }
+/** Which config duration each phase is counting down, so a chip edit can adjust the phase in flight. */
+const PHASE_CONFIG_FIELD = {
+  stretch: 'holdSeconds',
+  ramp: 'rampSeconds',
+  pails: 'pailsHoldSeconds',
+  rails: 'railsHoldSeconds',
+}
 
-function init(exercise) {
-  const cfg = exercise.pailsRails
-  const holdSeconds = cfg.holdSeconds ?? DEFAULT_HOLD_SECONDS
-  return {
-    phase: 'stretch',
-    round: 1,
-    remainingSeconds: holdSeconds,
-    holdSeconds,
-    rampSeconds: cfg.rampSeconds,
-    pailsHoldSeconds: cfg.pailsHoldSeconds,
-    railsHoldSeconds: cfg.railsHoldSeconds,
-    rounds: cfg.rounds,
-    side: cfg.side,
-    done: false,
-  }
+function init(config) {
+  return { phase: 'stretch', round: 1, remainingSeconds: config.holdSeconds, done: false }
 }
 
 function reducer(state, action) {
   switch (action.type) {
     case 'TICK': {
       if (state.done) return state
+      const { holdSeconds, rampSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = action.config
       const remainingSeconds = state.remainingSeconds - 1
       if (remainingSeconds > 0) return { ...state, remainingSeconds }
       if (state.phase === 'stretch') {
-        return { ...state, phase: 'ramp', remainingSeconds: state.rampSeconds }
+        return { ...state, phase: 'ramp', remainingSeconds: rampSeconds }
       }
       if (state.phase === 'ramp') {
-        return { ...state, phase: 'pails', remainingSeconds: state.pailsHoldSeconds }
+        return { ...state, phase: 'pails', remainingSeconds: pailsHoldSeconds }
       }
       if (state.phase === 'pails') {
         return { ...state, phase: 'switch', remainingSeconds: SWITCH_SECONDS }
       }
       if (state.phase === 'switch') {
-        return { ...state, phase: 'rails', remainingSeconds: state.railsHoldSeconds }
+        return { ...state, phase: 'rails', remainingSeconds: railsHoldSeconds }
       }
       // phase === 'rails' -> round boundary
-      if (state.round < state.rounds) {
-        return {
-          ...state,
-          phase: 'stretch',
-          round: state.round + 1,
-          remainingSeconds: state.holdSeconds,
-        }
+      if (state.round < rounds) {
+        return { ...state, phase: 'stretch', round: state.round + 1, remainingSeconds: holdSeconds }
       }
       return { ...state, done: true, remainingSeconds: 0 }
     }
-    case 'SET_HOLD_SECONDS': {
-      const delta = action.value - state.holdSeconds
-      return {
-        ...state,
-        holdSeconds: action.value,
-        remainingSeconds:
-          state.phase === 'stretch' ? Math.max(1, state.remainingSeconds + delta) : state.remainingSeconds,
-      }
-    }
-    case 'SET_RAMP_SECONDS': {
-      const delta = action.value - state.rampSeconds
-      return {
-        ...state,
-        rampSeconds: action.value,
-        remainingSeconds:
-          state.phase === 'ramp' ? Math.max(1, state.remainingSeconds + delta) : state.remainingSeconds,
-      }
-    }
-    case 'SET_PAILS_SECONDS': {
-      const delta = action.value - state.pailsHoldSeconds
-      return {
-        ...state,
-        pailsHoldSeconds: action.value,
-        remainingSeconds:
-          state.phase === 'pails' ? Math.max(1, state.remainingSeconds + delta) : state.remainingSeconds,
-      }
-    }
-    case 'SET_RAILS_SECONDS': {
-      const delta = action.value - state.railsHoldSeconds
-      return {
-        ...state,
-        railsHoldSeconds: action.value,
-        remainingSeconds:
-          state.phase === 'rails' ? Math.max(1, state.remainingSeconds + delta) : state.remainingSeconds,
-      }
-    }
-    case 'SET_ROUNDS':
-      return { ...state, rounds: action.value, round: Math.min(state.round, action.value) }
+    case 'ADJUST_REMAINING':
+      return { ...state, remainingSeconds: Math.max(1, state.remainingSeconds + action.delta) }
+    case 'CLAMP_ROUND':
+      return { ...state, round: Math.min(state.round, action.rounds) }
     default:
       return state
   }
 }
 
-export default function PailsRailsStep({ exercise, paused, onComplete }) {
-  const [state, dispatch] = useReducer(reducer, exercise, init)
+export default function PailsRailsStep({ config, paused, onComplete, onConfigChange }) {
+  const [state, dispatch] = useReducer(reducer, config, init)
 
-  useInterval(() => dispatch({ type: 'TICK' }), paused || state.done ? null : 1000)
+  useInterval(() => dispatch({ type: 'TICK', config }), paused || state.done ? null : 1000)
   useOnceWhen(state.done, onComplete)
   usePhaseTransitionCues(state.phase, state.round, state.done)
 
-  const phaseTotal = {
-    stretch: state.holdSeconds,
-    ramp: state.rampSeconds,
-    pails: state.pailsHoldSeconds,
-    switch: SWITCH_SECONDS,
-    rails: state.railsHoldSeconds,
-  }[state.phase]
+  const setDuration = (field, value) => {
+    if (field === PHASE_CONFIG_FIELD[state.phase]) {
+      dispatch({ type: 'ADJUST_REMAINING', delta: value - config[field] })
+    }
+    onConfigChange({ ...config, [field]: value })
+  }
 
-  const activeSide = state.side === 'left_right' ? (state.round % 2 === 1 ? 'left' : 'right') : null
+  const setRounds = (value) => {
+    dispatch({ type: 'CLAMP_ROUND', rounds: value })
+    onConfigChange({ ...config, rounds: value })
+  }
+
+  const phaseTotal =
+    state.phase === 'switch' ? SWITCH_SECONDS : config[PHASE_CONFIG_FIELD[state.phase]]
+
+  const activeSide =
+    config.side === 'left_right' ? (state.round % 2 === 1 ? 'left' : 'right') : null
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
@@ -133,52 +96,55 @@ export default function PailsRailsStep({ exercise, paused, onComplete }) {
       )}
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(state.remainingSeconds)}</p>
       <div className="w-full max-w-xs">
-        <ProgressBar value={1 - state.remainingSeconds / phaseTotal} colorClassName="bg-emerald-600" />
+        <ProgressBar
+          value={phaseTotal > 0 ? 1 - state.remainingSeconds / phaseTotal : 1}
+          colorClassName="bg-emerald-600"
+        />
       </div>
       <p className="text-base text-neutral-500 dark:text-neutral-400">
-        Round {state.round} of {state.rounds}
+        Round {state.round} of {config.rounds}
       </p>
 
       <div className="flex flex-wrap justify-center gap-3">
         <AdjustableChip
           label="Stretch hold"
-          value={state.holdSeconds}
+          value={config.holdSeconds}
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => dispatch({ type: 'SET_HOLD_SECONDS', value: v })}
+          onChange={(v) => setDuration('holdSeconds', v)}
         />
         <AdjustableChip
           label="Ramp"
-          value={state.rampSeconds}
+          value={config.rampSeconds}
           formatValue={formatMMSS}
           step={5}
           min={0}
-          onChange={(v) => dispatch({ type: 'SET_RAMP_SECONDS', value: v })}
+          onChange={(v) => setDuration('rampSeconds', v)}
         />
         <AdjustableChip
           label="PAILs"
-          value={state.pailsHoldSeconds}
+          value={config.pailsHoldSeconds}
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => dispatch({ type: 'SET_PAILS_SECONDS', value: v })}
+          onChange={(v) => setDuration('pailsHoldSeconds', v)}
         />
         <AdjustableChip
           label="RAILs"
-          value={state.railsHoldSeconds}
+          value={config.railsHoldSeconds}
           formatValue={formatMMSS}
           step={5}
           min={5}
-          onChange={(v) => dispatch({ type: 'SET_RAILS_SECONDS', value: v })}
+          onChange={(v) => setDuration('railsHoldSeconds', v)}
         />
         <AdjustableChip
           label="Rounds"
-          value={state.rounds}
+          value={config.rounds}
           formatValue={(v) => String(v)}
           step={1}
           min={1}
-          onChange={(v) => dispatch({ type: 'SET_ROUNDS', value: v })}
+          onChange={setRounds}
         />
       </div>
     </div>

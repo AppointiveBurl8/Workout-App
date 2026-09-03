@@ -12,7 +12,7 @@ export default function ExercisePicker({ exercises, category, onAdd }) {
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     return exercises
-      .filter((ex) => !category || ex.category === category)
+      .filter((ex) => !category || (ex.categories ?? []).includes(category))
       .filter((ex) => !q || ex.name.toLowerCase().includes(q))
   }, [exercises, category, query])
 

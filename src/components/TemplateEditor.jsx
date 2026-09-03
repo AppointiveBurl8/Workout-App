@@ -1,30 +1,42 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
-import { EXERCISE_CATEGORIES, addWorkoutTemplate, getExercises, getWorkoutTemplate, updateWorkoutTemplate } from '../db'
+import {
+  EXERCISE_CATEGORIES,
+  addWorkoutTemplate,
+  defaultTimerModeForCategory,
+  getExercises,
+  getWorkoutTemplate,
+  updateWorkoutTemplate,
+} from '../db'
 import { CATEGORY_LABELS } from '../lib/categories'
+import { resolveSessionConfig } from '../lib/sessionConfig'
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 import ExerciseListItem from './ExerciseListItem'
 import ExercisePicker from './ExercisePicker'
+import TimerModeConfigFields, { TimerModePicker } from './TimerModeConfigFields'
 
 function defaultTemplateDraft(exerciseIds = []) {
+  const category = EXERCISE_CATEGORIES[0]
   return {
     name: '',
-    category: EXERCISE_CATEGORIES[0],
+    category,
     tags: [],
-    sessionTargetSeconds: null,
     exerciseIds,
     archived: false,
+    ...resolveSessionConfig(null, category),
   }
 }
 
 function toDraft(template) {
+  const { timerMode, ...configs } = resolveSessionConfig(template, template.category)
   return {
     name: template.name,
     category: template.category,
     tags: template.tags ?? [],
-    sessionTargetSeconds: template.sessionTargetSeconds ?? null,
     exerciseIds: template.exerciseIds ?? [],
     archived: template.archived ?? false,
+    timerMode,
+    ...configs,
   }
 }
 
@@ -85,6 +97,7 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
   const [draft, setDraft] = useState(
     editingId === 'new' ? defaultTemplateDraft(initialExerciseIds) : null,
   )
+  const [modeTouched, setModeTouched] = useState(false)
   const exercises = useLiveQuery(() => getExercises(), [])
   const exercisesById = useMemo(
     () => new Map((exercises ?? []).map((ex) => [ex.id, ex])),
@@ -134,9 +147,13 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
       name: draft.name.trim(),
       category: draft.category,
       tags: draft.tags,
-      sessionTargetSeconds: draft.category === 'kettlebell' ? draft.sessionTargetSeconds : null,
       exerciseIds: draft.exerciseIds,
       archived: draft.archived,
+      defaultTimerMode: draft.timerMode,
+      intervalConfig: draft.intervalConfig,
+      pailsRailsConfig: draft.pailsRailsConfig,
+      openWorkConfig: draft.openWorkConfig,
+      sideMode: draft.sideMode,
     }
     if (editingId === 'new') {
       await addWorkoutTemplate(payload)
@@ -181,7 +198,18 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
               id="template-category"
               className={inputClass}
               value={draft.category}
-              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+              onChange={(e) => {
+                const category = e.target.value
+                // A new template's mode follows its category until the user picks one.
+                setDraft({
+                  ...draft,
+                  category,
+                  timerMode:
+                    editingId === 'new' && !modeTouched
+                      ? defaultTimerModeForCategory(category)
+                      : draft.timerMode,
+                })
+              }}
             >
               {EXERCISE_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
@@ -196,28 +224,28 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
             <TagInput tags={draft.tags} onChange={(tags) => setDraft({ ...draft, tags })} />
           </div>
 
-          {draft.category === 'kettlebell' && (
-            <div>
-              <label className={labelClass} htmlFor="template-session-target">
-                Session target (minutes)
-              </label>
-              <input
-                id="template-session-target"
-                type="number"
-                min="1"
-                className={inputClass}
-                value={draft.sessionTargetSeconds ? draft.sessionTargetSeconds / 60 : ''}
-                onChange={(e) => {
-                  const minutes = e.target.value === '' ? null : Number(e.target.value)
-                  setDraft({
-                    ...draft,
-                    sessionTargetSeconds: minutes === null ? null : minutes * 60,
-                  })
-                }}
-                placeholder="e.g. 20"
+          <div>
+            <span className={labelClass}>Default timer mode</span>
+            <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
+              How this workout is normally run. You can still change it for a single
+              session when you start it.
+            </p>
+            <TimerModePicker
+              value={draft.timerMode}
+              onChange={(timerMode) => {
+                setModeTouched(true)
+                setDraft({ ...draft, timerMode })
+              }}
+            />
+            <div className="mt-3">
+              <TimerModeConfigFields
+                timerMode={draft.timerMode}
+                config={draft}
+                onChange={(patch) => setDraft({ ...draft, ...patch })}
+                idPrefix="tpl"
               />
             </div>
-          )}
+          </div>
 
           <div>
             <label className={labelClass}>Exercises</label>

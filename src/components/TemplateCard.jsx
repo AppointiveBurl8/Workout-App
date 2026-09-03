@@ -21,7 +21,7 @@ export default function TemplateCard({ template, onEdit, onDuplicate, onArchive 
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Link
-          to={`/tracker?templateId=${template.id}`}
+          to={`/start?templateId=${template.id}`}
           className={`${primaryButtonClass} text-center`}
           onClick={unlockAudio}
         >

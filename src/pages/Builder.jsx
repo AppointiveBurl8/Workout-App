@@ -39,7 +39,7 @@ export default function Builder() {
 
   const handleStartWorkout = () => {
     unlockAudio()
-    navigate('/tracker', { state: { source: 'builder', exerciseIds } })
+    navigate('/start', { state: { source: 'builder', exerciseIds } })
   }
 
   const handleSaveFormClose = (saved) => {

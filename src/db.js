@@ -3,12 +3,31 @@ import Dexie from 'dexie'
 export const EXERCISE_CATEGORIES = ['kettlebell', 'mobility', 'stretching']
 export const TIMER_MODES = ['open_work', 'interval', 'pails_rails']
 export const PAILS_RAILS_SIDES = ['bilateral', 'left_right']
+export const SIDE_MODES = ['bilateral', 'blocked', 'alternating']
+
+export const DEFAULT_INTERVAL_CONFIG = { workSeconds: 30, restSeconds: 15, rounds: 5 }
+export const DEFAULT_PAILS_RAILS_CONFIG = {
+  holdSeconds: 15,
+  rampSeconds: 5,
+  pailsHoldSeconds: 20,
+  railsHoldSeconds: 20,
+  rounds: 3,
+  side: 'bilateral',
+}
+export const DEFAULT_OPEN_WORK_CONFIG = { sessionTargetSeconds: 1200, restSeconds: 120 }
+
+const CATEGORY_DEFAULT_TIMER_MODE = {
+  kettlebell: 'open_work',
+  mobility: 'interval',
+  stretching: 'pails_rails',
+}
+
+/** The mode a workout of this category is normally run in - a starting point, never a lock. */
+export function defaultTimerModeForCategory(category) {
+  return CATEGORY_DEFAULT_TIMER_MODE[category] ?? 'interval'
+}
 
 /**
- * @typedef {Object} OpenWorkConfig
- * @property {number} restSeconds
- * @property {string} repsLabel free-text display only (e.g. "12 reps"), not tracked/counted
- *
  * @typedef {Object} IntervalConfig
  * @property {number} workSeconds
  * @property {number} restSeconds
@@ -22,24 +41,31 @@ export const PAILS_RAILS_SIDES = ['bilateral', 'left_right']
  * @property {number} rounds
  * @property {'bilateral'|'left_right'} side
  *
+ * @typedef {Object} OpenWorkConfig
+ * @property {number} sessionTargetSeconds hard-stop total session length
+ * @property {number} restSeconds rest length after each set
+ *
  * @typedef {Object} Exercise
+ * A movement, and nothing about how it's timed - timing belongs to the workout that
+ * runs it, so the same movement can be run as intervals one day and open work the next.
  * @property {number} [id]
  * @property {string} name
- * @property {'kettlebell'|'mobility'|'stretching'} category
- * @property {'open_work'|'interval'|'pails_rails'} timerMode
+ * @property {Array<'kettlebell'|'mobility'|'stretching'>} categories an exercise can belong to several
+ * @property {string} repsLabel free-text display only (e.g. "12 reps"), not tracked/counted
  * @property {string} [notes]
- * @property {OpenWorkConfig|null} openWork populated only when timerMode is 'open_work'
- * @property {IntervalConfig|null} interval populated only when timerMode is 'interval'
- * @property {PailsRailsConfig|null} pailsRails populated only when timerMode is 'pails_rails'
  *
  * @typedef {Object} WorkoutTemplate
  * @property {number} [id]
  * @property {string} name
  * @property {'kettlebell'|'mobility'|'stretching'} category
  * @property {string[]} tags target areas, e.g. "hips", "full-body"
- * @property {number|null} sessionTargetSeconds hard-stop total session length; only meaningful for kettlebell/open_work templates
  * @property {number[]} exerciseIds ordered Exercise ids in this template
  * @property {boolean} archived soft-delete flag; archived templates are hidden from the main list
+ * @property {'open_work'|'interval'|'pails_rails'} defaultTimerMode pre-selected on the Start Workout screen
+ * @property {IntervalConfig} intervalConfig applied to every exercise when run as intervals
+ * @property {PailsRailsConfig} pailsRailsConfig applied to every exercise when run as Pails/Rails
+ * @property {OpenWorkConfig} openWorkConfig used when run as open work
+ * @property {'bilateral'|'blocked'|'alternating'} sideMode how the open-work movement list is grouped
  *
  * @typedef {Object} LoggedSession
  * @property {number} [id]
@@ -82,15 +108,69 @@ db.version(2)
       })
   })
 
+// Timer mode and its config move off Exercise and onto WorkoutTemplate, and an
+// exercise's single category becomes a list. Templates are migrated first, while the
+// old per-exercise configs are still readable, so an existing workout keeps the
+// timings it was actually being run with instead of falling back to generic defaults.
+db.version(3)
+  .stores({
+    exercises: '++id, name, *categories',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade(async (tx) => {
+    const legacyExercises = await tx.table('exercises').toArray()
+    const legacyById = new Map(legacyExercises.map((exercise) => [exercise.id, exercise]))
+
+    await tx
+      .table('workoutTemplates')
+      .toCollection()
+      .modify((template) => {
+        const referenced = (template.exerciseIds ?? [])
+          .map((id) => legacyById.get(id))
+          .filter(Boolean)
+        const legacyInterval = referenced.find((exercise) => exercise.interval)?.interval
+        const legacyPailsRails = referenced.find((exercise) => exercise.pailsRails)?.pailsRails
+        const legacyOpenWork = referenced.find((exercise) => exercise.openWork)?.openWork
+        const legacyMode = referenced.find((exercise) => exercise.timerMode)?.timerMode
+
+        template.defaultTimerMode =
+          template.defaultTimerMode ?? legacyMode ?? defaultTimerModeForCategory(template.category)
+        template.intervalConfig = { ...DEFAULT_INTERVAL_CONFIG, ...legacyInterval }
+        template.pailsRailsConfig = { ...DEFAULT_PAILS_RAILS_CONFIG, ...legacyPailsRails }
+        template.openWorkConfig = {
+          sessionTargetSeconds:
+            template.sessionTargetSeconds ?? DEFAULT_OPEN_WORK_CONFIG.sessionTargetSeconds,
+          restSeconds: legacyOpenWork?.restSeconds ?? DEFAULT_OPEN_WORK_CONFIG.restSeconds,
+        }
+        template.sideMode = template.sideMode ?? 'bilateral'
+        delete template.sessionTargetSeconds
+      })
+
+    await tx
+      .table('exercises')
+      .toCollection()
+      .modify((exercise) => {
+        exercise.categories =
+          exercise.categories ?? (exercise.category ? [exercise.category] : [])
+        exercise.repsLabel = exercise.repsLabel ?? exercise.openWork?.repsLabel ?? ''
+        delete exercise.category
+        delete exercise.timerMode
+        delete exercise.openWork
+        delete exercise.interval
+        delete exercise.pailsRails
+      })
+  })
+
 // ---------------- Exercise ----------------
 
 export async function addExercise(exercise) {
   return db.exercises.add({
     name: '',
+    categories: [],
+    repsLabel: '',
     notes: '',
-    openWork: null,
-    interval: null,
-    pailsRails: null,
     ...exercise,
   })
 }
@@ -111,15 +191,27 @@ export async function deleteExercise(id) {
   return db.exercises.delete(id)
 }
 
+/** Templates that reference this exercise - deleting it would leave a gap in each. */
+export async function getTemplatesUsingExercise(exerciseId) {
+  const templates = await db.workoutTemplates.toArray()
+  return templates.filter((template) => (template.exerciseIds ?? []).includes(exerciseId))
+}
+
 // ---------------- WorkoutTemplate ----------------
 
 export async function addWorkoutTemplate(template) {
+  const category = template.category ?? EXERCISE_CATEGORIES[0]
   return db.workoutTemplates.add({
     name: '',
+    category,
     tags: [],
-    sessionTargetSeconds: null,
     exerciseIds: [],
     archived: false,
+    defaultTimerMode: defaultTimerModeForCategory(category),
+    intervalConfig: { ...DEFAULT_INTERVAL_CONFIG },
+    pailsRailsConfig: { ...DEFAULT_PAILS_RAILS_CONFIG },
+    openWorkConfig: { ...DEFAULT_OPEN_WORK_CONFIG },
+    sideMode: 'bilateral',
     ...template,
   })
 }
