@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { defaultSetsRepsScheme } from './lib/setsReps'
 
 export const EXERCISE_CATEGORIES = ['kettlebell', 'mobility', 'stretching']
 export const TIMER_MODES = ['open_work', 'interval', 'pails_rails']
@@ -54,12 +55,12 @@ export function defaultTimerModeForCategory(category) {
  * @property {number} restSeconds rest length after each set
  *
  * @typedef {Object} Exercise
- * A movement, and nothing about how it's timed - timing belongs to the workout that
- * runs it, so the same movement can be run as intervals one day and open work the next.
+ * A movement, and nothing about how it's timed or how many sets/reps it calls for -
+ * both belong to the workout that runs it, so the same movement can be run as
+ * intervals one day and open work the next, at a different sets/reps scheme each time.
  * @property {number} [id]
  * @property {string} name
  * @property {Array<'kettlebell'|'mobility'|'stretching'>} categories an exercise can belong to several
- * @property {string} repsLabel free-text display only (e.g. "12 reps"), not tracked/counted
  * @property {string} [notes]
  *
  * @typedef {Object} WorkoutTemplate
@@ -68,6 +69,9 @@ export function defaultTimerModeForCategory(category) {
  * @property {'kettlebell'|'mobility'|'stretching'} category
  * @property {string[]} tags target areas, e.g. "hips", "full-body"
  * @property {number[]} exerciseIds ordered Exercise ids in this template
+ * @property {import('./lib/setsReps').SetsRepsScheme[]} setsReps one scheme per exerciseIds
+ *   position (not per Exercise - the same movement can call for a different scheme in
+ *   a different workout, or a different slot of the same workout)
  * @property {boolean} archived soft-delete flag; archived templates are hidden from the main list
  * @property {'open_work'|'interval'|'pails_rails'} defaultTimerMode pre-selected on the Start Workout screen
  * @property {IntervalConfig} intervalConfig applied to every exercise when run as intervals
@@ -198,13 +202,42 @@ db.version(4)
       })
   })
 
+// Reps move off Exercise entirely - sets/reps is a per-workout, per-slot scheme now
+// (WorkoutTemplate.setsReps, positionally aligned with exerciseIds), configured on
+// the Edit Template page instead of on the exercise itself. Every existing template
+// backfills one default scheme per exercise it already has.
+db.version(5)
+  .stores({
+    exercises: '++id, name, *categories',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade(async (tx) => {
+    await tx
+      .table('workoutTemplates')
+      .toCollection()
+      .modify((template) => {
+        const exerciseIds = template.exerciseIds ?? []
+        template.setsReps = exerciseIds.map(
+          (_, i) => template.setsReps?.[i] ?? defaultSetsRepsScheme(),
+        )
+      })
+
+    await tx
+      .table('exercises')
+      .toCollection()
+      .modify((exercise) => {
+        delete exercise.repsLabel
+      })
+  })
+
 // ---------------- Exercise ----------------
 
 export async function addExercise(exercise) {
   return db.exercises.add({
     name: '',
     categories: [],
-    repsLabel: '',
     notes: '',
     ...exercise,
   })
@@ -241,6 +274,7 @@ export async function addWorkoutTemplate(template) {
     category,
     tags: [],
     exerciseIds: [],
+    setsReps: [],
     archived: false,
     defaultTimerMode: defaultTimerModeForCategory(category),
     intervalConfig: { ...DEFAULT_INTERVAL_CONFIG },

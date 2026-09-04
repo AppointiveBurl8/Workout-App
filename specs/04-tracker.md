@@ -93,6 +93,15 @@ before the first timer counts down. This applies to all three modes.
 
 ## Known Issues / Changelog
 
+- **Changed** - Per-exercise reps moved off `Exercise.repsLabel` (free text) onto
+  `WorkoutTemplate.setsReps` (a structured `SetsRepsScheme` per exercise slot,
+  configured on the Edit Template page - see `specs/01-data-model.md`). Wherever
+  the old repsLabel used to display (Start Workout's exercise list, the current/
+  next exercise in Interval and Pails/Rails, Open Work's movement reference) now
+  shows the formatted scheme instead, threaded through the active-session store
+  as `session.setsReps`. An on-the-fly Builder session has no template to carry a
+  scheme, so it shows nothing there, same as it showed nothing for an exercise
+  with no repsLabel set before.
 - **Fixed** - Active session state no longer resets on leaving the Tracker tab.
   Lifted into an app-level store (`activeSessionStore.jsx`) mounted above the
   router, mirrored to IndexedDB every few seconds.

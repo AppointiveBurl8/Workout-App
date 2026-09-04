@@ -33,15 +33,19 @@ export default function Tracker() {
     if (!resolvedTemplateId || allExercises === undefined || template === undefined || template === null) return
     bootstrapped.current = true
     const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
-    const exerciseIds = (template.exerciseIds ?? []).filter((id) => exercisesById.has(id))
-    if (exerciseIds.length === 0) return
+    const rawSetsReps = template.setsReps ?? []
+    const resolved = (template.exerciseIds ?? [])
+      .map((id, i) => ({ id, scheme: rawSetsReps[i] }))
+      .filter((entry) => exercisesById.has(entry.id))
+    if (resolved.length === 0) return
     const { timerMode, ...config } = resolveSessionConfig(template, template.category)
     dispatch({
       type: 'START_SESSION',
       templateId: template.id,
       workoutName: template.name,
       category: template.category,
-      exerciseIds,
+      exerciseIds: resolved.map((entry) => entry.id),
+      setsReps: resolved.map((entry) => entry.scheme),
       timerMode,
       config,
     })

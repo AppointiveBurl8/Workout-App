@@ -9,6 +9,7 @@ import { useActiveSession } from '../lib/activeSessionStore'
 import { formatMMSS } from '../lib/formatDuration'
 import { majorityCategory, resolveSessionConfig } from '../lib/sessionConfig'
 import { computeStepSessionDurationSeconds } from '../lib/sessionEngine'
+import { formatSetsReps } from '../lib/setsReps'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 
 /** Total estimated session length, live as chips change - null for Open Work, which
@@ -41,7 +42,7 @@ function EmptyState({ message }) {
   )
 }
 
-function StartWorkoutForm({ template, steps, workoutName, category }) {
+function StartWorkoutForm({ template, steps, setsReps, workoutName, category }) {
   const navigate = useNavigate()
   const { dispatch } = useActiveSession()
   const [config, setConfig] = useState(() => resolveSessionConfig(template, category))
@@ -58,6 +59,7 @@ function StartWorkoutForm({ template, steps, workoutName, category }) {
       workoutName,
       category,
       exerciseIds: steps.map((step) => step.id),
+      setsReps,
       timerMode,
       config: sessionConfig,
     })
@@ -85,8 +87,10 @@ function StartWorkoutForm({ template, steps, workoutName, category }) {
               className="rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800"
             >
               <p className="text-sm font-medium">{step.name}</p>
-              {step.repsLabel && (
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">{step.repsLabel}</p>
+              {setsReps[index] && (
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  {formatSetsReps(setsReps[index])}
+                </p>
               )}
             </li>
           ))}
@@ -152,7 +156,14 @@ export default function StartWorkout() {
 
   const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
   const exerciseIds = template ? template.exerciseIds : builderExerciseIds
-  const steps = exerciseIds.map((id) => exercisesById.get(id)).filter(Boolean)
+  const rawSetsReps = template?.setsReps ?? []
+  // Zipped and filtered together so a since-deleted exercise can't shift setsReps
+  // out of alignment with the steps it's meant to describe.
+  const resolved = exerciseIds
+    .map((id, i) => ({ step: exercisesById.get(id), scheme: rawSetsReps[i] }))
+    .filter((entry) => entry.step)
+  const steps = resolved.map((entry) => entry.step)
+  const setsReps = resolved.map((entry) => entry.scheme)
 
   if (steps.length === 0) {
     return <EmptyState message="This workout has no exercises." />
@@ -162,6 +173,7 @@ export default function StartWorkout() {
     <StartWorkoutForm
       template={template}
       steps={steps}
+      setsReps={setsReps}
       workoutName={template ? template.name : 'On-the-fly Workout'}
       category={template ? template.category : majorityCategory(steps)}
     />

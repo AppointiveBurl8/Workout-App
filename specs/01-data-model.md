@@ -1,19 +1,19 @@
 # Data Model
 
 Dexie (IndexedDB) database `WorkoutTrackerDB`, defined in `src/db.js`. Currently at
-schema version 4.
+schema version 5.
 
 ## Exercise
 
-A movement, and nothing about how it's timed - timing belongs to the workout that
-runs it, so the same movement can be run as intervals one day and open work the next.
+A movement, and nothing about how it's timed or how many sets/reps it calls for -
+both belong to the workout that runs it, so the same movement can be run as
+intervals one day and open work the next, at a different sets/reps scheme each time.
 
 ```
 {
   id: number,
   name: string,
   categories: Array<'kettlebell'|'mobility'|'stretching'>,  // an exercise can belong to several
-  repsLabel: string,   // free-text display only (e.g. "12 reps"), not tracked/counted
   notes?: string,
 }
 ```
@@ -27,6 +27,7 @@ runs it, so the same movement can be run as intervals one day and open work the 
   category: 'kettlebell'|'mobility'|'stretching',
   tags: string[],
   exerciseIds: number[],       // ordered
+  setsReps: SetsRepsScheme[],  // one per exerciseIds position - see below
   archived: boolean,
   defaultTimerMode: 'open_work'|'interval'|'pails_rails',
   intervalConfig: IntervalConfig,
@@ -35,6 +36,31 @@ runs it, so the same movement can be run as intervals one day and open work the 
   sideMode: 'bilateral'|'blocked'|'alternating',   // Open Work's movement-list grouping
 }
 ```
+
+### SetsRepsScheme
+
+Defined in `src/lib/setsReps.js`, configured per-exercise-slot on the Edit Template
+page (not on the Exercise itself - the same movement can call for a different
+scheme in a different workout, or a different slot of the same workout).
+
+```
+{
+  pattern: 'straight'|'top_back_off'|'ramp'|'pyramid'|'reverse_pyramid'|'custom',
+  sets: number,
+  reps: number,
+  percent: number,        // "Back-off" (top_back_off) or "Set Interval" (ramp) - see below
+  customSets: number[],   // explicit reps per set - see below
+}
+```
+
+`straight`/`top_back_off`/`ramp` all run `reps` reps for `sets` sets - the app has
+no weight tracking, so `percent` is purely a reference note for the lifter (how
+much to drop or ramp the weight by on later sets), not something reps are computed
+from. `pyramid`/`reverse_pyramid`/`custom` instead read their per-set rep counts
+directly from `customSets`, one entry per set, freely editable and independently
+grown/shrunk from `sets`/`reps`; switching into `pyramid`/`reverse_pyramid` seeds a
+descending/ascending default table from the current `sets`/`reps`, while `custom`
+keeps whatever table is already there (reconciled to the current `sets` count).
 
 ### IntervalConfig
 
@@ -114,3 +140,9 @@ close/reload doesn't lose it.
   `'bilateral'` option no longer has a runtime meaning for this mode (every
   Pails/Rails round is now unconditionally Left-then-Right). No `LoggedSession`
   migration was needed - logged sessions don't reference `side`/`sideMode`.
+- **v5**: removed `Exercise.repsLabel` (free-text, per-exercise). Added
+  `WorkoutTemplate.setsReps`, one `SetsRepsScheme` per `exerciseIds` position -
+  reps moves from a per-exercise label to a per-workout, per-slot structured
+  scheme, configured on the Edit Template page instead of on the exercise. Every
+  existing template backfills a default `{ pattern: 'straight', sets: 3, reps: 10,
+  percent: 10, customSets: [10, 10, 10] }` scheme per exercise it already has.

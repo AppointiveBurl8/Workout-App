@@ -54,20 +54,6 @@ export default function ExerciseForm({ draft, onChange }) {
       </div>
 
       <div>
-        <label className={labelClass} htmlFor="exercise-reps">
-          Reps label (optional)
-        </label>
-        <input
-          id="exercise-reps"
-          type="text"
-          className={inputClass}
-          placeholder='e.g. "12 reps"'
-          value={draft.repsLabel}
-          onChange={(e) => onChange({ ...draft, repsLabel: e.target.value })}
-        />
-      </div>
-
-      <div>
         <label className={labelClass} htmlFor="exercise-notes">
           Notes (optional)
         </label>

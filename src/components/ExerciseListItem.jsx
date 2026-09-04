@@ -9,23 +9,28 @@ export default function ExerciseListItem({
   onMoveDown,
   onRemove,
   showCategory = false,
+  setsRepsSummary,
+  onEditSetsReps,
 }) {
   return (
     <li className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 px-3 py-2 dark:border-neutral-800">
       <div>
         <p className="text-sm font-medium">{exercise ? exercise.name : 'Unknown exercise'}</p>
-        {exercise && (
+        {exercise && showCategory && (
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-            {showCategory &&
-              (exercise.categories ?? []).map((category) => (
-                <CategoryBadge key={category} category={category} />
-              ))}
-            {exercise.repsLabel && (
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                {exercise.repsLabel}
-              </span>
-            )}
+            {(exercise.categories ?? []).map((category) => (
+              <CategoryBadge key={category} category={category} />
+            ))}
           </div>
+        )}
+        {onEditSetsReps && (
+          <button
+            type="button"
+            onClick={onEditSetsReps}
+            className="mt-1 text-xs font-medium text-indigo-600 dark:text-indigo-400"
+          >
+            Sets × Reps: {setsRepsSummary}
+          </button>
         )}
       </div>
       <div className="flex items-center gap-1">

@@ -26,11 +26,6 @@ function ExerciseCard({ exercise, onEdit, onDelete }) {
         {(exercise.categories ?? []).map((category) => (
           <CategoryBadge key={category} category={category} />
         ))}
-        {exercise.repsLabel && (
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            {exercise.repsLabel}
-          </span>
-        )}
       </div>
       {exercise.notes && (
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{exercise.notes}</p>
