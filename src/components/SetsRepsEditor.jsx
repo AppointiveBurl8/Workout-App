@@ -3,6 +3,8 @@ import {
   SETS_REPS_PATTERNS,
   SETS_REPS_PATTERN_LABELS,
   buildTableForPattern,
+  getRepsSequence,
+  isFormulaDriven,
   resizeTable,
   usesCustomTable,
 } from '../lib/setsReps'
@@ -121,6 +123,23 @@ export default function SetsRepsEditor({ exerciseName, scheme, onChange, onClose
                 +
               </button>
             </div>
+          </div>
+        )}
+
+        {isFormulaDriven(scheme.pattern) && (
+          <div className="mb-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
+            <div className="flex justify-between px-4 pt-3 text-sm text-neutral-500 dark:text-neutral-400">
+              <span>Set</span>
+              <span>Reps</span>
+            </div>
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+              {getRepsSequence(scheme).map((reps, i) => (
+                <li key={i} className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-base">{i + 1}</span>
+                  <span className="text-base tabular-nums">{reps}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

@@ -53,14 +53,29 @@ scheme in a different workout, or a different slot of the same workout).
 }
 ```
 
-`straight`/`top_back_off`/`ramp` all run `reps` reps for `sets` sets - the app has
-no weight tracking, so `percent` is purely a reference note for the lifter (how
-much to drop or ramp the weight by on later sets), not something reps are computed
-from. `pyramid`/`reverse_pyramid`/`custom` instead read their per-set rep counts
-directly from `customSets`, one entry per set, freely editable and independently
-grown/shrunk from `sets`/`reps`; switching into `pyramid`/`reverse_pyramid` seeds a
-descending/ascending default table from the current `sets`/`reps`, while `custom`
-keeps whatever table is already there (reconciled to the current `sets` count).
+`straight` runs `reps` reps for all `sets` sets. The other five patterns each
+resolve to a real, varying reps-per-set sequence via `getRepsSequence()` in
+`src/lib/setsReps.js` - the app has no weight tracking, so `percent` drives reps
+directly instead of standing in for a weight change:
+
+- `top_back_off`: starts at `reps` (the top set) and backs off by `percent`% each
+  subsequent set, rounded, floored at 1 - e.g. `reps: 12, percent: 30` -> 12, 8, 6, 4.
+  Read-only preview; not hand-editable per set.
+- `ramp`: the mirror of `top_back_off` - climbs by `percent`% per set, ending at
+  `reps` as the peak set. Also a read-only preview.
+- `pyramid`: starts at `reps` and climbs by a fixed step of 2 per set - e.g.
+  `reps: 2` over 4 sets -> 2, 4, 6, 8.
+- `reverse_pyramid`: the mirror of `pyramid` - the same sequence, descending.
+- `custom`: no formula at all - just `customSets` as entered.
+
+`pyramid`/`reverse_pyramid`/`custom` read their per-set rep counts directly from
+`customSets`, one entry per set, freely hand-editable and independently
+grown/shrunk from `sets`/`reps` (Add Set / remove a row). Switching into
+`pyramid`/`reverse_pyramid` seeds `customSets` from the pyramid formula above;
+`custom` keeps whatever table is already there (e.g. arriving from Pyramid),
+reconciled to the current `sets` count. `top_back_off`/`ramp` don't use
+`customSets` at all - their sequence is always recomputed live from `sets`/`reps`/
+`percent`, with no independent per-set state to fall out of sync.
 
 ### IntervalConfig
 
@@ -145,4 +160,4 @@ close/reload doesn't lose it.
   reps moves from a per-exercise label to a per-workout, per-slot structured
   scheme, configured on the Edit Template page instead of on the exercise. Every
   existing template backfills a default `{ pattern: 'straight', sets: 3, reps: 10,
-  percent: 10, customSets: [10, 10, 10] }` scheme per exercise it already has.
+  percent: 20, customSets: [10, 10, 10] }` scheme per exercise it already has.
