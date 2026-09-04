@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
-import { formatSetsReps } from '../../lib/setsReps'
 import {
   dangerButtonClass,
   iconButtonClass,
@@ -25,16 +24,13 @@ function summarize(timerMode, config) {
   return `Stretch ${formatMMSS(holdSeconds)} / PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
 }
 
-function TransitionScreen({ nextExercise, nextSetsReps, summary, remainingSeconds, paused, onTogglePause, onSkip }) {
+function TransitionScreen({ nextExercise, summary, remainingSeconds, paused, onTogglePause, onSkip }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 p-6 text-center">
       <p className="text-base font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         Up Next
       </p>
       <p className="text-3xl font-semibold">{nextExercise.name}</p>
-      {nextSetsReps && (
-        <p className="-mt-3 text-base text-neutral-600 dark:text-neutral-300">{nextSetsReps}</p>
-      )}
       <p className="text-base text-neutral-500 dark:text-neutral-400">{summary}</p>
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -73,7 +69,6 @@ export default function SteppedSession({ steps, session, dispatch }) {
       {transitioning && nextExercise ? (
         <TransitionScreen
           nextExercise={nextExercise}
-          nextSetsReps={formatSetsReps(session.setsReps?.[currentIndex + 1])}
           summary={summarize(timerMode, config)}
           remainingSeconds={transitionRemaining}
           paused={paused}
@@ -83,11 +78,6 @@ export default function SteppedSession({ steps, session, dispatch }) {
       ) : (
         <>
           <p className="px-6 pt-4 text-center text-xl font-medium">{currentExercise.name}</p>
-          {session.setsReps?.[currentIndex] && (
-            <p className="px-6 pt-1 text-center text-sm text-neutral-500 dark:text-neutral-400">
-              {formatSetsReps(session.setsReps[currentIndex])}
-            </p>
-          )}
 
           {/* Freshly initialized stepState already shows the full configured duration
               at 0 elapsed, so the same step component doubles as the paused "ready"

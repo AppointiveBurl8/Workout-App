@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { SIDE_MODE_LABELS } from '../../lib/categories'
 import { formatMMSS } from '../../lib/formatDuration'
-import { formatSetsReps } from '../../lib/setsReps'
 import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
@@ -11,7 +10,7 @@ function MovementRow({ exercise, detail }) {
   return (
     <li className="rounded-md border border-neutral-200 px-4 py-3 dark:border-neutral-800">
       <p className="text-base font-medium">{exercise.name}</p>
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">{detail}</p>
+      {detail && <p className="text-sm text-neutral-500 dark:text-neutral-400">{detail}</p>}
     </li>
   )
 }
@@ -20,9 +19,7 @@ function MovementRow({ exercise, detail }) {
  * The informational reference list - purely a display grouping. Open Work never tracks
  * individual movements, so all three patterns just change how the same list reads.
  */
-function MovementReference({ exercises, setsReps, sideMode }) {
-  const detailFor = (index) => formatSetsReps(setsReps[index]) || '—'
-
+function MovementReference({ exercises, sideMode }) {
   if (sideMode === 'blocked') {
     return (
       <div className="flex flex-col gap-4">
@@ -32,8 +29,8 @@ function MovementReference({ exercises, setsReps, sideMode }) {
               {heading}
             </p>
             <ul className="flex flex-col gap-2">
-              {exercises.map((ex, i) => (
-                <MovementRow key={ex.id} exercise={ex} detail={detailFor(i)} />
+              {exercises.map((ex) => (
+                <MovementRow key={ex.id} exercise={ex} />
               ))}
             </ul>
           </div>
@@ -45,19 +42,17 @@ function MovementReference({ exercises, setsReps, sideMode }) {
   if (sideMode === 'alternating') {
     return (
       <ul className="flex flex-col gap-2">
-        {exercises.map((ex, i) => {
-          const scheme = setsReps[i]
-          const detail = scheme ? `${formatSetsReps(scheme)} left, then right` : 'Left, then right'
-          return <MovementRow key={ex.id} exercise={ex} detail={detail} />
-        })}
+        {exercises.map((ex) => (
+          <MovementRow key={ex.id} exercise={ex} detail="Left, then right" />
+        ))}
       </ul>
     )
   }
 
   return (
     <ul className="flex flex-col gap-2">
-      {exercises.map((ex, i) => (
-        <MovementRow key={ex.id} exercise={ex} detail={detailFor(i)} />
+      {exercises.map((ex) => (
+        <MovementRow key={ex.id} exercise={ex} />
       ))}
     </ul>
   )
@@ -189,7 +184,7 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
             </p>
           )}
         </div>
-        <MovementReference exercises={exercises} setsReps={session.setsReps ?? []} sideMode={sideMode} />
+        <MovementReference exercises={exercises} sideMode={sideMode} />
       </div>
     </div>
   )

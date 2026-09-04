@@ -33,6 +33,16 @@ against a hard session-target stop, with manual "End Set / Start Rest" and a
 reference list of movements grouped by `sideMode` (`bilateral`/`blocked`/
 `alternating`). No Next/Previous - there's nothing to step through.
 
+Open Work is also the only mode with a Sets × Reps plan
+(`openWorkConfig.setsReps` - see `specs/01-data-model.md`): a single, workout-wide
+choice of Straight/Top-Back-off/Ramp/Pyramid/Reverse Pyramid/Custom, configured on
+the Edit Template page and the Start Workout screen. Interval and Pails/Rails
+don't get this section at all - their rounds/work/rest structure already plays
+the role a sets/reps scheme would, so showing one there would be redundant. It's
+never shown per-exercise, and not shown anywhere during the running session
+itself (Open Work's live "Sets" chip and rest timer handle that loop) - only on
+the two configuration screens.
+
 ### Interval
 
 Work/rest phases, repeated for `rounds`, run once per exercise in the workout's
@@ -93,15 +103,14 @@ before the first timer counts down. This applies to all three modes.
 
 ## Known Issues / Changelog
 
-- **Changed** - Per-exercise reps moved off `Exercise.repsLabel` (free text) onto
-  `WorkoutTemplate.setsReps` (a structured `SetsRepsScheme` per exercise slot,
-  configured on the Edit Template page - see `specs/01-data-model.md`). Wherever
-  the old repsLabel used to display (Start Workout's exercise list, the current/
-  next exercise in Interval and Pails/Rails, Open Work's movement reference) now
-  shows the formatted scheme instead, threaded through the active-session store
-  as `session.setsReps`. An on-the-fly Builder session has no template to carry a
-  scheme, so it shows nothing there, same as it showed nothing for an exercise
-  with no repsLabel set before.
+- **Changed** - Reps moved off `Exercise.repsLabel` (free text, per-exercise) onto
+  a structured `SetsRepsScheme` - first tried per-exercise-slot
+  (`WorkoutTemplate.setsReps[]`), then corrected after usability feedback to a
+  single, workout-wide plan at `openWorkConfig.setsReps` (db v6), exclusive to
+  Open Work - see `specs/01-data-model.md`. It's configured on the Edit Template
+  page and the Start Workout screen only; it is never shown per-exercise, doesn't
+  apply to Interval or Pails/Rails (which already have rounds/work/rest for that
+  role), and isn't displayed anywhere during the running session itself.
 - **Fixed** - Active session state no longer resets on leaving the Tracker tab.
   Lifted into an app-level store (`activeSessionStore.jsx`) mounted above the
   router, mirrored to IndexedDB every few seconds.

@@ -33,14 +33,13 @@ function reducer(state, action) {
       return action.session ?? state
 
     case 'START_SESSION': {
-      const { templateId, workoutName, category, exerciseIds, setsReps, timerMode, config } = action
+      const { templateId, workoutName, category, exerciseIds, timerMode, config } = action
       const base = {
         status: 'active',
         templateId: templateId ?? null,
         workoutName,
         category,
         exerciseIds,
-        setsReps: setsReps ?? [],
         timerMode,
         config,
         started: false,

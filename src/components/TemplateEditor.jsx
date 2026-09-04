@@ -10,11 +10,9 @@ import {
 } from '../db'
 import { CATEGORY_LABELS } from '../lib/categories'
 import { resolveSessionConfig } from '../lib/sessionConfig'
-import { defaultSetsRepsScheme, formatSetsReps } from '../lib/setsReps'
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 import ExerciseListItem from './ExerciseListItem'
 import ExercisePicker from './ExercisePicker'
-import SetsRepsEditor from './SetsRepsEditor'
 import TimerModeConfigFields, { TimerModePicker } from './TimerModeConfigFields'
 
 function defaultTemplateDraft(exerciseIds = []) {
@@ -24,7 +22,6 @@ function defaultTemplateDraft(exerciseIds = []) {
     category,
     tags: [],
     exerciseIds,
-    setsReps: exerciseIds.map(() => defaultSetsRepsScheme()),
     archived: false,
     ...resolveSessionConfig(null, category),
   }
@@ -32,13 +29,11 @@ function defaultTemplateDraft(exerciseIds = []) {
 
 function toDraft(template) {
   const { timerMode, ...configs } = resolveSessionConfig(template, template.category)
-  const exerciseIds = template.exerciseIds ?? []
   return {
     name: template.name,
     category: template.category,
     tags: template.tags ?? [],
-    exerciseIds,
-    setsReps: exerciseIds.map((_, i) => template.setsReps?.[i] ?? defaultSetsRepsScheme()),
+    exerciseIds: template.exerciseIds ?? [],
     archived: template.archived ?? false,
     timerMode,
     ...configs,
@@ -103,7 +98,6 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
     editingId === 'new' ? defaultTemplateDraft(initialExerciseIds) : null,
   )
   const [modeTouched, setModeTouched] = useState(false)
-  const [editingSetsRepsIndex, setEditingSetsRepsIndex] = useState(null)
   const exercises = useLiveQuery(() => getExercises(), [])
   const exercisesById = useMemo(
     () => new Map((exercises ?? []).map((ex) => [ex.id, ex])),
@@ -133,32 +127,16 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
     const target = index + direction
     if (target < 0 || target >= draft.exerciseIds.length) return
     const newIds = [...draft.exerciseIds]
-    const newSetsReps = [...draft.setsReps]
     ;[newIds[index], newIds[target]] = [newIds[target], newIds[index]]
-    ;[newSetsReps[index], newSetsReps[target]] = [newSetsReps[target], newSetsReps[index]]
-    setDraft({ ...draft, exerciseIds: newIds, setsReps: newSetsReps })
+    setDraft({ ...draft, exerciseIds: newIds })
   }
 
   const removeExercise = (index) => {
-    setDraft({
-      ...draft,
-      exerciseIds: draft.exerciseIds.filter((_, i) => i !== index),
-      setsReps: draft.setsReps.filter((_, i) => i !== index),
-    })
+    setDraft({ ...draft, exerciseIds: draft.exerciseIds.filter((_, i) => i !== index) })
   }
 
   const addExerciseId = (id) => {
-    setDraft({
-      ...draft,
-      exerciseIds: [...draft.exerciseIds, id],
-      setsReps: [...draft.setsReps, defaultSetsRepsScheme()],
-    })
-  }
-
-  const setExerciseSetsReps = (index, scheme) => {
-    const setsReps = [...draft.setsReps]
-    setsReps[index] = scheme
-    setDraft({ ...draft, setsReps })
+    setDraft({ ...draft, exerciseIds: [...draft.exerciseIds, id] })
   }
 
   const canSave = draft.name.trim().length > 0
@@ -170,7 +148,6 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
       category: draft.category,
       tags: draft.tags,
       exerciseIds: draft.exerciseIds,
-      setsReps: draft.setsReps,
       archived: draft.archived,
       defaultTimerMode: draft.timerMode,
       intervalConfig: draft.intervalConfig,
@@ -283,8 +260,6 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
                     onMoveUp={() => moveExercise(index, -1)}
                     onMoveDown={() => moveExercise(index, 1)}
                     onRemove={() => removeExercise(index)}
-                    setsRepsSummary={formatSetsReps(draft.setsReps[index])}
-                    onEditSetsReps={() => setEditingSetsRepsIndex(index)}
                   />
                 ))}
               </ol>
@@ -318,15 +293,6 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
           Save Template
         </button>
       </footer>
-
-      {editingSetsRepsIndex !== null && (
-        <SetsRepsEditor
-          exerciseName={exercisesById.get(draft.exerciseIds[editingSetsRepsIndex])?.name ?? 'Exercise'}
-          scheme={draft.setsReps[editingSetsRepsIndex]}
-          onChange={(scheme) => setExerciseSetsReps(editingSetsRepsIndex, scheme)}
-          onClose={() => setEditingSetsRepsIndex(null)}
-        />
-      )}
     </div>
   )
 }

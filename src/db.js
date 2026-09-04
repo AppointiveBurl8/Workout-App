@@ -22,7 +22,11 @@ export const DEFAULT_PAILS_RAILS_CONFIG = {
   // Pails/Rails movements are inherently single-sided - constant, not user-editable.
   sideMode: 'unilateral',
 }
-export const DEFAULT_OPEN_WORK_CONFIG = { sessionTargetSeconds: 1200, restSeconds: 120 }
+export const DEFAULT_OPEN_WORK_CONFIG = {
+  sessionTargetSeconds: 1200,
+  restSeconds: 120,
+  setsReps: defaultSetsRepsScheme(),
+}
 
 const CATEGORY_DEFAULT_TIMER_MODE = {
   kettlebell: 'open_work',
@@ -53,6 +57,9 @@ export function defaultTimerModeForCategory(category) {
  * @typedef {Object} OpenWorkConfig
  * @property {number} sessionTargetSeconds hard-stop total session length
  * @property {number} restSeconds rest length after each set
+ * @property {import('./lib/setsReps').SetsRepsScheme} setsReps a workout-wide sets/reps
+ *   plan, exclusive to Open Work - Interval and Pails/Rails have their own rounds/work/
+ *   rest structure instead, so a separate sets/reps scheme would be redundant there
  *
  * @typedef {Object} Exercise
  * A movement, and nothing about how it's timed or how many sets/reps it calls for -
@@ -69,9 +76,6 @@ export function defaultTimerModeForCategory(category) {
  * @property {'kettlebell'|'mobility'|'stretching'} category
  * @property {string[]} tags target areas, e.g. "hips", "full-body"
  * @property {number[]} exerciseIds ordered Exercise ids in this template
- * @property {import('./lib/setsReps').SetsRepsScheme[]} setsReps one scheme per exerciseIds
- *   position (not per Exercise - the same movement can call for a different scheme in
- *   a different workout, or a different slot of the same workout)
  * @property {boolean} archived soft-delete flag; archived templates are hidden from the main list
  * @property {'open_work'|'interval'|'pails_rails'} defaultTimerMode pre-selected on the Start Workout screen
  * @property {IntervalConfig} intervalConfig applied to every exercise when run as intervals
@@ -232,6 +236,31 @@ db.version(5)
       })
   })
 
+// v5's per-exercise-slot setsReps turned out to be the wrong shape: usability
+// testing showed one scheme per exercise was confusing to configure and read.
+// Sets/Reps becomes a single, workout-wide choice instead - and since Interval and
+// Pails/Rails already have their own rounds/work/rest structure, it's exclusive to
+// Open Work, living at openWorkConfig.setsReps instead of a top-level array.
+db.version(6)
+  .stores({
+    exercises: '++id, name, *categories',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade(async (tx) => {
+    await tx
+      .table('workoutTemplates')
+      .toCollection()
+      .modify((template) => {
+        if (template.openWorkConfig) {
+          template.openWorkConfig.setsReps =
+            template.setsReps?.[0] ?? defaultSetsRepsScheme()
+        }
+        delete template.setsReps
+      })
+  })
+
 // ---------------- Exercise ----------------
 
 export async function addExercise(exercise) {
@@ -274,7 +303,6 @@ export async function addWorkoutTemplate(template) {
     category,
     tags: [],
     exerciseIds: [],
-    setsReps: [],
     archived: false,
     defaultTimerMode: defaultTimerModeForCategory(category),
     intervalConfig: { ...DEFAULT_INTERVAL_CONFIG },

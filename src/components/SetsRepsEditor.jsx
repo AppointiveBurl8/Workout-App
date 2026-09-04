@@ -39,11 +39,11 @@ function StepperRow({ label, value, min, onChange }) {
 }
 
 /**
- * Per-exercise Sets x Reps configuration, opened from a template's exercise list.
- * Modeled after StrongLifts 5x5's "Sets x Reps" screen: a Sets/Reps stepper, a
- * pattern picker, and (for the table-based patterns) an editable per-set reps list.
+ * The workout's Sets x Reps plan (Open Work only - see specs/04-tracker.md). Modeled
+ * after StrongLifts 5x5's "Sets x Reps" screen: a Sets/Reps stepper, a pattern picker,
+ * and (for the table-based patterns) an editable per-set reps list.
  */
-export default function SetsRepsEditor({ exerciseName, scheme, onChange, onClose }) {
+export default function SetsRepsEditor({ scheme, onChange, onClose }) {
   const setSets = (sets) => {
     if (usesCustomTable(scheme.pattern)) {
       onChange({ ...scheme, sets, customSets: resizeTable(scheme.customSets, sets, scheme.reps) })
@@ -87,10 +87,7 @@ export default function SetsRepsEditor({ exerciseName, scheme, onChange, onClose
         >
           ‹
         </button>
-        <div>
-          <h2 className="text-lg font-semibold">Sets × Reps</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">{exerciseName}</p>
-        </div>
+        <h2 className="text-lg font-semibold">Sets × Reps</h2>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
