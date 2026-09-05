@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { SIDE_MODE_LABELS } from '../../lib/categories'
 import { formatMMSS } from '../../lib/formatDuration'
+import { SETS_REPS_PATTERN_LABELS, getRepsSequence } from '../../lib/setsReps'
 import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
@@ -93,6 +94,14 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
       ? 'text-indigo-600 dark:text-indigo-400'
       : 'text-emerald-600 dark:text-emerald-400'
 
+  // The current set is whichever one hasn't been completed yet - it advances the
+  // moment End Set is tapped, since that's the same setsCompleted count driving it.
+  // Once you've done more sets than planned, it just holds on the last target.
+  const repsSequence = openWorkConfig.setsReps ? getRepsSequence(openWorkConfig.setsReps) : []
+  const totalSets = repsSequence.length
+  const currentSetNumber = totalSets > 0 ? Math.min(state.setsCompleted + 1, totalSets) : null
+  const currentSetReps = totalSets > 0 ? repsSequence[Math.min(state.setsCompleted, totalSets - 1)] : null
+
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
       <div className="flex flex-col items-center gap-3 text-center">
@@ -100,6 +109,16 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
         <p className="text-8xl font-bold tabular-nums">
           {state.phase === 'rest' ? formatMMSS(state.restRemainingSeconds) : formatMMSS(state.workElapsedSeconds)}
         </p>
+        {totalSets > 0 && (
+          <div>
+            <p className="text-lg font-semibold">
+              Set {currentSetNumber} of {totalSets}
+            </p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              Target: {currentSetReps} reps · {SETS_REPS_PATTERN_LABELS[openWorkConfig.setsReps.pattern]}
+            </p>
+          </div>
+        )}
       </div>
 
       <div>

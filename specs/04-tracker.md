@@ -39,9 +39,16 @@ choice of Straight/Top-Back-off/Ramp/Pyramid/Reverse Pyramid/Custom, configured 
 the Edit Template page and the Start Workout screen. Interval and Pails/Rails
 don't get this section at all - their rounds/work/rest structure already plays
 the role a sets/reps scheme would, so showing one there would be redundant. It's
-never shown per-exercise, and not shown anywhere during the running session
-itself (Open Work's live "Sets" chip and rest timer handle that loop) - only on
-the two configuration screens.
+never shown per-exercise.
+
+The plan also tracks live during the running session: "Set _n_ of _total_ /
+Target: _x_ reps" is shown under the timer, derived from `state.setsCompleted`
+against `getRepsSequence(openWorkConfig.setsReps)` - no separate state to keep in
+sync. It advances the moment "End Set / Start Rest" is tapped, since that's the
+same `setsCompleted` count the existing "Sets" chip already reads (so manually
+adjusting that chip also moves the current-set display). Once `setsCompleted`
+exceeds the plan's total, the display holds on the last set's target rather than
+indexing out of range.
 
 ### Interval
 
@@ -107,10 +114,13 @@ before the first timer counts down. This applies to all three modes.
   a structured `SetsRepsScheme` - first tried per-exercise-slot
   (`WorkoutTemplate.setsReps[]`), then corrected after usability feedback to a
   single, workout-wide plan at `openWorkConfig.setsReps` (db v6), exclusive to
-  Open Work - see `specs/01-data-model.md`. It's configured on the Edit Template
-  page and the Start Workout screen only; it is never shown per-exercise, doesn't
-  apply to Interval or Pails/Rails (which already have rounds/work/rest for that
-  role), and isn't displayed anywhere during the running session itself.
+  Open Work - see `specs/01-data-model.md`. Configured on the Edit Template page
+  and the Start Workout screen; never shown per-exercise; doesn't apply to
+  Interval or Pails/Rails (which already have rounds/work/rest for that role).
+- **Added** - The plan also tracks live on the running Open Work session: "Set
+  _n_ of _total_ / Target: _x_ reps" under the timer, advancing off the same
+  `setsCompleted` count "End Set / Start Rest" already increments - see "Open
+  Work" above.
 - **Fixed** - Active session state no longer resets on leaving the Tracker tab.
   Lifted into an app-level store (`activeSessionStore.jsx`) mounted above the
   router, mirrored to IndexedDB every few seconds.
