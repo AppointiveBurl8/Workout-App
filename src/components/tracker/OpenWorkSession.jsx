@@ -96,7 +96,10 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
 
   // The current set is whichever one hasn't been completed yet - it advances the
   // moment End Set is tapped, since that's the same setsCompleted count driving it.
-  // Once you've done more sets than planned, it just holds on the last target.
+  // Once you've done more sets than planned, it just holds on the last target. This
+  // is the only place setsCompleted is shown/edited when there's a plan - a separate
+  // "Sets: N" chip reading the same count read as two numbers out of sync with each
+  // other at a glance, so it's folded in here instead of shown alongside.
   const repsSequence = openWorkConfig.setsReps ? getRepsSequence(openWorkConfig.setsReps) : []
   const totalSets = repsSequence.length
   const currentSetNumber = totalSets > 0 ? Math.min(state.setsCompleted + 1, totalSets) : null
@@ -110,13 +113,33 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
           {state.phase === 'rest' ? formatMMSS(state.restRemainingSeconds) : formatMMSS(state.workElapsedSeconds)}
         </p>
         {totalSets > 0 && (
-          <div>
-            <p className="text-lg font-semibold">
-              Set {currentSetNumber} of {totalSets}
-            </p>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Target: {currentSetReps} reps · {SETS_REPS_PATTERN_LABELS[openWorkConfig.setsReps.pattern]}
-            </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_SETS_COMPLETED', value: Math.max(0, state.setsCompleted - 1) })}
+              disabled={complete || state.setsCompleted <= 0}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-lg disabled:opacity-30 dark:bg-neutral-800"
+              aria-label="Previous set"
+            >
+              −
+            </button>
+            <div>
+              <p className="text-lg font-semibold">
+                Set {currentSetNumber} of {totalSets}
+              </p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                Target: {currentSetReps} reps · {SETS_REPS_PATTERN_LABELS[openWorkConfig.setsReps.pattern]}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_SETS_COMPLETED', value: state.setsCompleted + 1 })}
+              disabled={complete}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-lg disabled:opacity-30 dark:bg-neutral-800"
+              aria-label="Next set"
+            >
+              +
+            </button>
           </div>
         )}
       </div>
@@ -150,15 +173,17 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
           disabled={complete}
           onChange={(v) => dispatch({ type: 'ADJUST_OPEN_WORK_CONFIG', field: 'sessionTargetSeconds', value: v })}
         />
-        <AdjustableChip
-          label="Sets"
-          value={state.setsCompleted}
-          formatValue={(v) => String(v)}
-          step={1}
-          min={0}
-          disabled={complete}
-          onChange={(v) => dispatch({ type: 'SET_SETS_COMPLETED', value: v })}
-        />
+        {totalSets === 0 && (
+          <AdjustableChip
+            label="Sets"
+            value={state.setsCompleted}
+            formatValue={(v) => String(v)}
+            step={1}
+            min={0}
+            disabled={complete}
+            onChange={(v) => dispatch({ type: 'SET_SETS_COMPLETED', value: v })}
+          />
+        )}
       </div>
 
       <div className="flex justify-center gap-3">
