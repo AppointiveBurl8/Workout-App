@@ -143,6 +143,11 @@ mute flag and, as of the active-session persistence work in `specs/04-tracker.md
 for mirroring the in-progress Tracker session (key `activeSession`) so a hard app
 close/reload doesn't lose it.
 
+Cloud sync adds `cloudSyncedVersion`, `cloudLocalRevision`,
+`cloudSyncedLocalRevision`, and `cloudDeviceLabel` - see `specs/05-cloud-sync.md`.
+These are per-device bookkeeping and are deliberately *not* part of the synced
+payload, since each device tracks its own position independently.
+
 ## Migration history
 
 - **v1**: initial schema.

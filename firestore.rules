@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// One document per user, holding that user's whole workout dataset as JSON.
+// Nobody can read or write anyone else's, and signed-out requests get nothing.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

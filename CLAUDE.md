@@ -9,8 +9,10 @@ React + Vite, Tailwind, Dexie (IndexedDB), deployed to GitHub Pages.
 `specs/01-data-model.md` documents the Dexie schema (Exercise, WorkoutTemplate,
 LoggedSession, Settings) and its migration history. `specs/04-tracker.md` documents
 the three Tracker timer modes (Open Work, Interval, Pails/Rails) and their Known
-Issues/Changelog. Read the relevant spec before changing that area, and update it
-as part of the same change - not as a follow-up.
+Issues/Changelog. `specs/05-cloud-sync.md` documents the optional Firebase sync
+(why whole-blob, the Firestore shape, the reconcile rules). Read the relevant spec
+before changing that area, and update it as part of the same change - not as a
+follow-up.
 
 ## Conventions
 

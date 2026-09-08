@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import CategoryBadge from '../components/CategoryBadge'
 import BackupControls from '../components/log/BackupControls'
 import LogEntryForm from '../components/log/LogEntryForm'
+import SyncControls from '../components/log/SyncControls'
 import { EXERCISE_CATEGORIES, getLoggedSessions, getWorkoutTemplates } from '../db'
 import { CATEGORY_LABELS, CATEGORY_TAB_ACTIVE_CLASSES } from '../lib/categories'
 import {
@@ -85,6 +86,8 @@ export default function Log() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <h1 className="text-xl font-semibold">Log</h1>
+
+      <SyncControls />
 
       <BackupControls sessionCount={allSessions.length} />
 
