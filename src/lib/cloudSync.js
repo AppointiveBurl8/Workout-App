@@ -89,6 +89,38 @@ function userDoc(uid) {
   return doc(firestore, 'users', uid)
 }
 
+/**
+ * Sync operations run one at a time. Several can be in flight at once - a
+ * debounced push, a tap on Sync now, a snapshot from another device - and each
+ * reads the synced version, acts, then writes it back. Interleaved, one can act
+ * on a version another has already moved past and report a conflict that isn't
+ * one. Serializing them makes each read-act-write whole.
+ */
+let syncChain = Promise.resolve()
+
+function withSyncLock(fn) {
+  const run = syncChain.then(fn, fn)
+  syncChain = run.catch(() => undefined)
+  return run
+}
+
+/** Firestore's error codes name nothing a person can act on; these do. */
+export function describeSyncError(error) {
+  switch (error?.code) {
+    case 'permission-denied':
+      return 'Firebase refused that request. Most likely the rules in firestore.rules have not been published for this project - until they are, the default rules block every read and write.'
+    case 'unauthenticated':
+      return 'Firebase signed this device out. Sign in again to resume syncing.'
+    case 'failed-precondition':
+      return 'This project has no Firestore database yet. Create one in the Firebase console, then try again.'
+    case 'unavailable':
+    case 'deadline-exceeded':
+      return 'Could not reach Firebase. Check the connection, then use Sync now.'
+    default:
+      return error?.message ?? 'Sync failed.'
+  }
+}
+
 async function applyRemote(remote) {
   const payload = JSON.parse(remote.payloadJson)
   applyingRemote = true
@@ -101,7 +133,7 @@ async function applyRemote(remote) {
 }
 
 /** Local wins: overwrite the cloud copy regardless of what version it's on. */
-export async function pushLocal(uid, { force = false } = {}) {
+async function pushLocalUnlocked(uid, { force = false } = {}) {
   const payload = await exportAllData()
   const payloadJson = JSON.stringify(payload)
   if (payloadJson.length > PAYLOAD_WARN_BYTES) {
@@ -131,32 +163,44 @@ export async function pushLocal(uid, { force = false } = {}) {
   return result
 }
 
+export function pushLocal(uid, options) {
+  return withSyncLock(() => pushLocalUnlocked(uid, options))
+}
+
 /** Cloud wins: replace everything on this device with the stored copy. */
-export async function pullRemote(uid) {
+async function pullRemoteUnlocked(uid) {
   const snap = await getDoc(userDoc(uid))
   if (!snap.exists()) return { status: 'empty' }
   await applyRemote(snap.data())
   return { status: 'pulled', version: snap.data().version }
 }
 
+export function pullRemote(uid) {
+  return withSyncLock(() => pullRemoteUnlocked(uid))
+}
+
 /**
  * Run on sign-in and whenever the remote changes. Decides between pulling,
  * pushing, doing nothing, or handing an unresolvable difference to the user.
  */
-export async function reconcile(uid) {
+async function reconcileUnlocked(uid) {
   const snap = await getDoc(userDoc(uid))
   const syncedVersion = (await getSetting(SYNCED_VERSION_KEY)) ?? 0
   const dirty = await hasUnsyncedChanges()
 
+  // No remote document at all - nothing can be lost by writing over it, and a
+  // plain push would refuse if this device still remembers an older version
+  // (which is exactly the state a device is left in if the cloud copy is ever
+  // cleared out from under it).
   if (!snap.exists()) {
-    return pushLocal(uid)
+    return pushLocalUnlocked(uid, { force: true })
   }
 
   const remote = snap.data()
   const remoteVersion = remote.version ?? 0
 
   if (remoteVersion === syncedVersion) {
-    return dirty ? pushLocal(uid) : { status: 'in-sync', version: remoteVersion }
+    return dirty ? pushLocalUnlocked(uid) : { status: 'in-sync', version: remoteVersion }
   }
 
   // Remote moved on. Safe to take it wholesale only if this device has nothing
@@ -177,14 +221,50 @@ export async function reconcile(uid) {
   return { status: 'conflict', remoteVersion, remoteDeviceLabel: remote.deviceLabel ?? 'another device' }
 }
 
-export function watchRemote(uid, onRemoteChange) {
-  return onSnapshot(userDoc(uid), (snap) => {
-    if (snap.exists()) onRemoteChange(snap.data())
+export function reconcile(uid) {
+  return withSyncLock(() => reconcileUnlocked(uid))
+}
+
+/**
+ * For the snapshot listener. The "is the remote ahead of us" test has to be made
+ * inside the lock: read outside it, a push that hasn't finished recording its
+ * version yet still looks like someone else's write, and the device reconciles
+ * against its own push. Returns null when there was nothing to do.
+ */
+export function reconcileIfBehind(uid, remoteVersion) {
+  return withSyncLock(async () => {
+    const synced = (await getSetting(SYNCED_VERSION_KEY)) ?? 0
+    if ((remoteVersion ?? 0) <= synced) return null
+    return reconcileUnlocked(uid)
   })
 }
 
-export async function readSyncedVersion() {
-  return (await getSetting(SYNCED_VERSION_KEY)) ?? 0
+export function watchRemote(uid, onRemoteChange) {
+  return onSnapshot(userDoc(uid), (snap) => {
+    // Belt and braces: pushes go through a transaction, which isn't latency
+    // compensated, so this shouldn't fire for our own un-acknowledged write.
+    if (snap.exists() && !snap.metadata.hasPendingWrites) onRemoteChange(snap.data())
+  })
+}
+
+/**
+ * What is actually stored in the cloud right now, read straight from Firestore
+ * rather than from local bookkeeping - "it says synced" and "the data is up
+ * there" are different claims, and only this one answers the second.
+ */
+export async function readCloudSummary(uid) {
+  const snap = await getDoc(userDoc(uid))
+  if (!snap.exists()) return null
+  const remote = snap.data()
+  const payload = JSON.parse(remote.payloadJson)
+  return {
+    version: remote.version ?? 0,
+    deviceLabel: remote.deviceLabel ?? 'another device',
+    savedAt: remote.updatedAt?.toDate?.() ?? null,
+    exercises: payload.exercises.length,
+    templates: payload.templates.length,
+    sessions: payload.sessions.length,
+  }
 }
 
 // ---------------- Auth ----------------

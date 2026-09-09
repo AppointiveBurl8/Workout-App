@@ -7,9 +7,23 @@ const STATUS_TEXT = {
   synced: 'Everything is backed up',
 }
 
+function plural(count, word) {
+  return `${count} ${word}${count === 1 ? '' : 's'}`
+}
+
 export default function SyncControls() {
-  const { user, status, conflict, lastSyncedAt, error, signIn, disconnect, resolveConflict, syncNow } =
-    useCloudSync()
+  const {
+    user,
+    status,
+    conflict,
+    lastSyncedAt,
+    error,
+    cloudSummary,
+    signIn,
+    disconnect,
+    resolveConflict,
+    syncNow,
+  } = useCloudSync()
 
   if (status === 'unconfigured') return null
 
@@ -44,6 +58,17 @@ export default function SyncControls() {
           </p>
         )}
       </div>
+
+      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+        {cloudSummary
+          ? `In the cloud: ${plural(cloudSummary.exercises, 'exercise')}, ${plural(
+              cloudSummary.templates,
+              'workout',
+            )}, ${plural(cloudSummary.sessions, 'logged session')} - saved from ${
+              cloudSummary.deviceLabel
+            }${cloudSummary.savedAt ? ` on ${cloudSummary.savedAt.toLocaleString()}` : ''}.`
+          : 'Nothing saved to the cloud yet.'}
+      </p>
 
       {conflict && (
         <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">

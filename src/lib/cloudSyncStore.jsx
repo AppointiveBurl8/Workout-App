@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { isFirebaseConfigured } from './firebase'
 import {
+  describeSyncError,
   installLocalChangeHooks,
   onLocalDataChange,
   pullRemote,
   pushLocal,
-  readSyncedVersion,
+  readCloudSummary,
   reconcile,
+  reconcileIfBehind,
   signInWithGoogle,
   signOutOfCloud,
   watchAuth,
@@ -25,7 +27,19 @@ export function CloudSyncProvider({ children }) {
   const [conflict, setConflict] = useState(null)
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [error, setError] = useState('')
+  const [cloudSummary, setCloudSummary] = useState(null)
   const pushTimerRef = useRef(null)
+
+  // What the cloud holds, read back from Firestore rather than inferred from a
+  // status string - the whole question is whether the write actually landed.
+  const refreshCloudSummary = useCallback(async () => {
+    if (!user) return
+    try {
+      setCloudSummary(await readCloudSummary(user.uid))
+    } catch {
+      setCloudSummary(null)
+    }
+  }, [user])
 
   const applyResult = useCallback((result) => {
     if (!result) return
@@ -46,7 +60,8 @@ export function CloudSyncProvider({ children }) {
     setError('')
     setStatus('synced')
     setLastSyncedAt(new Date())
-  }, [])
+    refreshCloudSummary()
+  }, [refreshCloudSummary])
 
   useEffect(() => {
     if (!isFirebaseConfigured) return
@@ -55,6 +70,7 @@ export function CloudSyncProvider({ children }) {
       setUser(nextUser)
       setStatus(nextUser ? 'connecting' : 'signed-out')
       setConflict(null)
+      setCloudSummary(null)
     })
   }, [])
 
@@ -69,14 +85,19 @@ export function CloudSyncProvider({ children }) {
       })
       .catch((e) => {
         if (cancelled) return
-        setError(e.message)
+        setError(describeSyncError(e))
         setStatus('error')
       })
 
     const unwatch = watchRemote(user.uid, async (remote) => {
-      const synced = await readSyncedVersion()
-      if (cancelled || (remote.version ?? 0) <= synced) return
-      applyResult(await reconcile(user.uid))
+      try {
+        const result = await reconcileIfBehind(user.uid, remote.version)
+        if (!cancelled) applyResult(result)
+      } catch (e) {
+        if (cancelled) return
+        setError(describeSyncError(e))
+        setStatus('error')
+      }
     })
 
     return () => {
@@ -85,22 +106,51 @@ export function CloudSyncProvider({ children }) {
     }
   }, [user, applyResult])
 
+  const push = useCallback(
+    async (uid) => {
+      try {
+        applyResult(await pushLocal(uid))
+      } catch (e) {
+        setError(describeSyncError(e))
+        setStatus('error')
+      }
+    },
+    [applyResult],
+  )
+
   // Local edits schedule a debounced push.
   useEffect(() => {
     if (!user) return
     return onLocalDataChange(() => {
       setStatus((prev) => (prev === 'conflict' ? prev : 'syncing'))
       clearTimeout(pushTimerRef.current)
-      pushTimerRef.current = setTimeout(async () => {
-        try {
-          applyResult(await pushLocal(user.uid))
-        } catch (e) {
-          setError(e.message)
-          setStatus('error')
-        }
+      pushTimerRef.current = setTimeout(() => {
+        pushTimerRef.current = null
+        push(user.uid)
       }, PUSH_DEBOUNCE_MS)
     })
-  }, [user, applyResult])
+  }, [user, push])
+
+  // A workout ends and the app gets closed seconds later. Waiting out the
+  // debounce would leave that last session on the device until the next launch.
+  useEffect(() => {
+    if (!user) return
+    const flush = () => {
+      if (!pushTimerRef.current) return
+      clearTimeout(pushTimerRef.current)
+      pushTimerRef.current = null
+      push(user.uid)
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [user, push])
 
   useEffect(() => () => clearTimeout(pushTimerRef.current), [])
 
@@ -111,7 +161,7 @@ export function CloudSyncProvider({ children }) {
     } catch (e) {
       // A closed popup isn't worth surfacing as a failure.
       if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
-        setError(e.message)
+        setError(describeSyncError(e))
         setStatus('error')
       }
     }
@@ -132,7 +182,7 @@ export function CloudSyncProvider({ children }) {
             : await pullRemote(user.uid),
         )
       } catch (e) {
-        setError(e.message)
+        setError(describeSyncError(e))
         setStatus('error')
       }
     },
@@ -145,14 +195,25 @@ export function CloudSyncProvider({ children }) {
     try {
       applyResult(await reconcile(user.uid))
     } catch (e) {
-      setError(e.message)
+      setError(describeSyncError(e))
       setStatus('error')
     }
   }, [user, applyResult])
 
   return (
     <CloudSyncContext.Provider
-      value={{ user, status, conflict, lastSyncedAt, error, signIn, disconnect, resolveConflict, syncNow }}
+      value={{
+        user,
+        status,
+        conflict,
+        lastSyncedAt,
+        error,
+        cloudSummary,
+        signIn,
+        disconnect,
+        resolveConflict,
+        syncNow,
+      }}
     >
       {children}
     </CloudSyncContext.Provider>
