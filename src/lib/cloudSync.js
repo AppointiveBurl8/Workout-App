@@ -1,3 +1,4 @@
+import Dexie from 'dexie'
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import { doc, getDoc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { db, exportAllData, getSetting, importAllData, setSetting } from '../db'
@@ -52,6 +53,30 @@ async function bumpLocalRevision() {
   for (const cb of changeListeners) cb()
 }
 
+let bumpScheduled = false
+
+/**
+ * A table hook runs inside whatever transaction the caller opened, and that
+ * transaction won't include the settings table - restoring a backup writes
+ * every row inside one transaction over the three data tables, so without
+ * detaching here every single bookkeeping write throws and the restore is never
+ * recognised as something to sync. ignoreTransaction runs it on its own.
+ *
+ * The flag collapses a burst into one write: a restore fires this fifty times
+ * over, and fifty concurrent read-increment-writes of the same key would only
+ * ever land as one increment anyway.
+ */
+function scheduleRevisionBump() {
+  if (bumpScheduled) return
+  bumpScheduled = true
+  Dexie.ignoreTransaction(() =>
+    queueMicrotask(() => {
+      bumpScheduled = false
+      bumpLocalRevision()
+    }),
+  )
+}
+
 /** Every write to the three data tables marks this device as having unsynced work. */
 export function installLocalChangeHooks() {
   if (hooksInstalled) return
@@ -60,7 +85,7 @@ export function installLocalChangeHooks() {
     const table = db.table(name)
     for (const event of ['creating', 'updating', 'deleting']) {
       table.hook(event, () => {
-        if (!applyingRemote) queueMicrotask(bumpLocalRevision)
+        if (!applyingRemote) scheduleRevisionBump()
       })
     }
   }

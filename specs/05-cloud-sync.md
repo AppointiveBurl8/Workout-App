@@ -87,6 +87,15 @@ Writes made while applying a pulled snapshot are ignored by the Dexie change
 hook, otherwise importing a pull would look like a local edit and bounce straight
 back up as a new version.
 
+The hook detaches its bookkeeping write with `Dexie.ignoreTransaction`. A table
+hook runs inside whatever transaction the caller opened, and none of those
+include the `settings` table where the revision lives - so inside a restore,
+which writes every row in one transaction across the three data tables, the
+bookkeeping write throws `NotFoundError` on every single row and the restore is
+never recognised as something to sync. The hook also collapses a burst into one
+write: fifty concurrent read-increment-writes of the same key land as one
+increment regardless.
+
 Local edits are pushed on a 2.5s debounce, so a burst of chip adjustments during
 a workout becomes one write rather than twenty. A pending push is flushed
 immediately on `visibilitychange` (hidden) and `pagehide` - a workout typically
@@ -115,6 +124,12 @@ only the second one answers the question people actually have.
 
 ## Known Issues / Changelog
 
+- **Fixed** - restoring a backup did not sync. Every row of the restore is
+  written inside one Dexie transaction, and the change hook's bookkeeping write
+  went to a table outside it, so all of them threw and the device never recorded
+  that it had anything to send: the cloud copy stayed empty while the app showed
+  no error at all. Reproduced through the app - before, the cloud stays at 0/0/0
+  with `dirty: false`; after, a 36/10/4 restore lands.
 - **Fixed** - a device could wedge permanently if the cloud document went missing
   (deleted from the console, or a project reset) while the device still
   remembered a version: reconcile reported a conflict against a document that
