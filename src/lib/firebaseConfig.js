@@ -6,10 +6,12 @@
  * Paste the config object from Firebase console -> Project settings -> Your apps.
  */
 export const firebaseConfig = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  appId: '',
+  apiKey: 'AIzaSyDjvrwChRBOpJprEbsxsSODk0H-9sb3UsY',
+  authDomain: 'workout-app-f1e2c.firebaseapp.com',
+  projectId: 'workout-app-f1e2c',
+  storageBucket: 'workout-app-f1e2c.firebasestorage.app',
+  messagingSenderId: '242539399651',
+  appId: '1:242539399651:web:514caac121409aacfbf8d6',
 }
 
 /** Local emulator runs against a throwaway project id; Firebase treats a
