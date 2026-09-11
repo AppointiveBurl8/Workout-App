@@ -8,65 +8,47 @@
 /** Brief transitional cues: not part of the "active" configured durations, so
  * they're excluded from the total-duration estimate on the Start Workout screen. */
 export const SWITCH_SECONDS = 3 // Pails/Rails: PAILS hold -> RAILS hold direction change
-export const SIDE_SWITCH_SECONDS = 3 // Left pass -> Right pass, when sideMode is unilateral
 export const TRANSITION_SECONDS = 10 // "Up Next" countdown between exercises
 export const LEAD_IN_SECONDS = 10 // Get-into-position countdown before the first phase
 
 // ---------------- Interval ----------------
 
 export function initIntervalStepState(config) {
-  const side = config.sideMode === 'unilateral' ? 'left' : null
-  return { phase: 'work', side, round: 1, remainingSeconds: config.workSeconds, done: false }
+  return { phase: 'work', round: 1, remainingSeconds: config.workSeconds, done: false }
 }
 
 function advanceIntervalPhase(state, config) {
-  const { workSeconds, restSeconds, rounds, sideMode } = config
-  const unilateral = sideMode === 'unilateral'
+  const { workSeconds, restSeconds, rounds } = config
   if (state.phase === 'work') {
     return { ...state, phase: 'rest', remainingSeconds: restSeconds }
   }
-  if (state.phase === 'rest') {
-    if (unilateral && state.side === 'left') {
-      return { ...state, phase: 'side_switch', side: null, remainingSeconds: SIDE_SWITCH_SECONDS }
-    }
-    if (state.round < rounds) {
-      return {
-        ...state,
-        phase: 'work',
-        side: unilateral ? 'left' : null,
-        round: state.round + 1,
-        remainingSeconds: workSeconds,
-      }
-    }
-    return { ...state, done: true, remainingSeconds: 0 }
+  // phase === 'rest'
+  if (state.round < rounds) {
+    return { ...state, phase: 'work', round: state.round + 1, remainingSeconds: workSeconds }
   }
-  // phase === 'side_switch'
-  return { ...state, phase: 'work', side: 'right', remainingSeconds: workSeconds }
+  return { ...state, done: true, remainingSeconds: 0 }
 }
 
 export const INTERVAL_PHASE_LABELS = {
   work: 'Work',
   rest: 'Rest',
-  side_switch: 'Switch',
 }
 
 export const INTERVAL_PHASE_COLORS = {
   work: { label: 'text-indigo-600 dark:text-indigo-400', bar: 'bg-indigo-600' },
   rest: { label: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-600' },
-  side_switch: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
 }
 
 const INTERVAL_PHASE_CONFIG_FIELD = { work: 'workSeconds', rest: 'restSeconds' }
 
 function intervalPhaseTotal(state, config) {
-  if (state.phase === 'side_switch') return SIDE_SWITCH_SECONDS
   return config[INTERVAL_PHASE_CONFIG_FIELD[state.phase]]
 }
 
 // ---------------- Pails/Rails ----------------
 
 export function initPailsRailsStepState(config) {
-  return { phase: 'stretch', side: 'left', round: 1, remainingSeconds: config.holdSeconds, done: false }
+  return { phase: 'stretch', round: 1, remainingSeconds: config.holdSeconds, done: false }
 }
 
 function advancePailsRailsPhase(state, config) {
@@ -81,21 +63,10 @@ function advancePailsRailsPhase(state, config) {
     case 'switch':
       return { ...state, phase: 'rails', remainingSeconds: railsHoldSeconds }
     case 'rails':
-      if (state.side === 'left') {
-        return { ...state, phase: 'side_switch', side: null, remainingSeconds: SIDE_SWITCH_SECONDS }
-      }
       if (state.round < rounds) {
-        return {
-          ...state,
-          phase: 'stretch',
-          side: 'left',
-          round: state.round + 1,
-          remainingSeconds: holdSeconds,
-        }
+        return { ...state, phase: 'stretch', round: state.round + 1, remainingSeconds: holdSeconds }
       }
       return { ...state, done: true, remainingSeconds: 0 }
-    case 'side_switch':
-      return { ...state, phase: 'stretch', side: 'right', remainingSeconds: holdSeconds }
     default:
       return state
   }
@@ -107,7 +78,6 @@ export const PAILS_RAILS_PHASE_LABELS = {
   pails: 'PAILs Hold',
   switch: 'Switch',
   rails: 'RAILs Hold',
-  side_switch: 'Switch',
 }
 
 /** Sustained holds get their own color; the brief ramp/switch transitions share a neutral one. */
@@ -117,7 +87,6 @@ export const PAILS_RAILS_PHASE_COLORS = {
   pails: { label: 'text-green-600 dark:text-green-400', bar: 'bg-green-600' },
   switch: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
   rails: { label: 'text-red-600 dark:text-red-400', bar: 'bg-red-600' },
-  side_switch: { label: 'text-neutral-500 dark:text-neutral-400', bar: 'bg-neutral-400 dark:bg-neutral-500' },
 }
 
 const PAILS_RAILS_PHASE_CONFIG_FIELD = {
@@ -129,7 +98,6 @@ const PAILS_RAILS_PHASE_CONFIG_FIELD = {
 
 function pailsRailsPhaseTotal(state, config) {
   if (state.phase === 'switch') return SWITCH_SECONDS
-  if (state.phase === 'side_switch') return SIDE_SWITCH_SECONDS
   return config[PAILS_RAILS_PHASE_CONFIG_FIELD[state.phase]]
 }
 
@@ -192,6 +160,44 @@ export function stepPhaseLabel(timerMode, phase) {
 export function stepPhaseColors(timerMode, phase) {
   return ENGINES[timerMode].colors[phase]
 }
+
+// ---------------- Session position: which exercise, which side ----------------
+
+/**
+ * Unilateral work runs the whole exercise list on the left, then the whole list
+ * again on the right - not left-then-right inside each exercise. One setup per
+ * side beats one per exercise, so the side belongs to the session rather than to
+ * any single movement's phase machine.
+ */
+export function isUnilateral(timerMode, config) {
+  if (timerMode === 'pails_rails') return true
+  if (timerMode === 'interval') return config.sideMode === 'unilateral'
+  return false
+}
+
+export function initSessionSide(timerMode, config) {
+  return isUnilateral(timerMode, config) ? 'left' : null
+}
+
+/** Where the session goes once the current exercise's phase machine finishes. */
+export function advanceSessionPosition({ currentIndex, side, exerciseCount, unilateral }) {
+  if (currentIndex < exerciseCount - 1) {
+    return { currentIndex: currentIndex + 1, side, done: false }
+  }
+  if (unilateral && side === 'left') {
+    return { currentIndex: 0, side: 'right', done: false }
+  }
+  return { currentIndex, side, done: true }
+}
+
+/** The mirror, for Previous. Null once there's nothing before the current spot. */
+export function retreatSessionPosition({ currentIndex, side, exerciseCount, unilateral }) {
+  if (currentIndex > 0) return { currentIndex: currentIndex - 1, side }
+  if (unilateral && side === 'right') return { currentIndex: exerciseCount - 1, side: 'left' }
+  return null
+}
+
+export const SIDE_LABELS = { left: 'Left side', right: 'Right side' }
 
 // ---------------- Total duration estimate (item 5) ----------------
 

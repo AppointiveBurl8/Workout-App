@@ -19,6 +19,11 @@ few seconds while a session is active, and hydrated back on app start, so a hard
 reload or the container restarting doesn't lose an in-progress workout either. A
 session that has ended (or was never started) doesn't get a stored copy.
 
+The stored copy carries a `shape` version (`SESSION_SHAPE`). A mirrored session
+from a build whose state was shaped differently is dropped on hydrate rather than
+half-restored - a workout in progress across a deploy is worth less than a
+Tracker that renders.
+
 The phase-machine logic itself (which phase comes next, when a round/exercise
 completes) is pure and framework-free, in `src/lib/sessionEngine.js`, driven by the
 store's reducer rather than a per-component `useReducer` - which is what lets it
@@ -55,18 +60,54 @@ indexing out of range.
 Work/rest phases, repeated for `rounds`, run once per exercise in the workout's
 `exerciseIds` list, in order.
 
-When `intervalConfig.sideMode` is `'unilateral'`, each round runs the work/rest
-pair once for the Left side, a brief "Switch" cue, then the work/rest pair again
-for the Right side, before advancing to the next round. `'bilateral'` runs the
-pair once per round with no side split.
+When `intervalConfig.sideMode` is `'unilateral'`, the side is a session-level
+pass, not a phase inside the exercise - see "Unilateral sides" below.
+`'bilateral'` has no side at all.
+
+During the Rest phase the timer also names what the rest is for: the next round
+of the same movement, the next movement, the fact that the side is about to
+change, or that the workout ends after this. Derived from the phase machine and
+the session position, so there's nothing extra to keep in sync. Only Interval has
+it - Pails/Rails has no rest phase, and Open Work has no exercise sequence to
+look ahead in.
 
 ### Pails/Rails
 
 Per round: Stretch Hold -> Ramp -> PAILs Hold -> Switch (direction cue) -> RAILs
-Hold. Pails/Rails movements are always single-sided (`sideMode: 'unilateral'`,
-constant - see `specs/01-data-model.md`), so every round additionally runs that
-whole sequence once for the Left side, a side "Switch" cue, then again for the
-Right side, before advancing to the next round.
+Hold. The "Switch" here is the PAILs-to-RAILs contraction direction change, not a
+side change. Pails/Rails movements are always single-sided (`sideMode:
+'unilateral'`, constant - see `specs/01-data-model.md`); the side is handled at
+session level, below.
+
+### Unilateral sides (Interval, Pails/Rails)
+
+A unilateral session runs **the whole exercise list on the left, then the whole
+list again on the right** - not left-then-right within each movement. Getting set
+up on a side is the expensive part, so it's done once per side rather than once
+per exercise.
+
+So the side belongs to the session (`session.side`), not to any movement's phase
+machine: `initIntervalStepState`/`initPailsRailsStepState` carry no side, and
+neither machine has a `side_switch` phase. `sessionEngine.js` owns the sequencing
+as two pure functions - `advanceSessionPosition` and its mirror
+`retreatSessionPosition` - over `{ currentIndex, side }`:
+
+- Not on the last exercise -> next exercise, same side.
+- Last exercise, on the left -> back to the first exercise, on the right.
+- Last exercise, on the right (or bilateral) -> the session is done.
+
+The side change lands on the same between-exercise countdown as any other
+handover (last exercise -> first exercise), so there's no separate side cue; the
+screen just reads "Switch Sides" and names the side being moved to. The
+`pendingPosition` on the session records where a countdown is heading, so
+completing it, skipping it, and Next all land in the same place.
+
+Because both functions are pure and exported, the Rest phase's next-up line and
+the Prev/Next disabled states read the same sequencing the reducer does rather
+than re-deriving it.
+
+Total duration is unchanged by this: the same work in a different order, so the
+×2 in both estimate formulas still holds.
 
 ### Lead-in countdown (Interval, Pails/Rails)
 
@@ -103,7 +144,13 @@ Previous / Pause-Resume / Skip / Next, operating on the exercise sequence:
   (as if its timer had hit zero), without changing which exercise is active.
 - Between exercises (when a step completes on its own, not via Next), an "Up Next"
   countdown screen shows before the next exercise starts; "Skip wait, start now"
-  jumps straight in.
+  jumps straight in. On a unilateral workout the handover from the last exercise
+  of the left pass to the first of the right pass is the same screen, headed
+  "Switch Sides".
+- On a unilateral workout, Next and Previous step along the full session sequence,
+  so Next off the last exercise of the left pass lands on the first exercise of
+  the right pass, and Previous comes back the same way. They still stop at the two
+  real ends of the session.
 
 ### Total duration estimate
 
@@ -131,6 +178,15 @@ before the first timer counts down. This applies to all three modes.
 
 ## Known Issues / Changelog
 
+- **Changed** - unilateral sessions now run every exercise on the left and then
+  every exercise on the right, instead of switching sides inside each exercise -
+  see "Unilateral sides" above. The side moved out of the per-exercise phase
+  machines onto the session, which also retired the 3-second `SIDE_SWITCH_SECONDS`
+  cue (the side change now lands on the ordinary between-exercise countdown,
+  headed "Switch Sides") and made `stepState.side` a `session.side` prop on the
+  step components. Total duration is unaffected.
+- **Added** - the Interval rest timer names what's next: the next round, the next
+  movement, an upcoming side change, or the end of the workout.
 - **Added** - a 10-second get-into-position countdown when Start is tapped on an
   Interval or Pails/Rails workout - see "Lead-in countdown" above. *Note: there
   are two taps between the Library and a running timer - "Begin" on the Start

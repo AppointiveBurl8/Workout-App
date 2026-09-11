@@ -2,6 +2,12 @@ import { useEffect } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import {
+  SIDE_LABELS,
+  advanceSessionPosition,
+  isUnilateral,
+  retreatSessionPosition,
+} from '../../lib/sessionEngine'
+import {
   dangerButtonClass,
   iconButtonClass,
   primaryButtonClass,
@@ -28,6 +34,7 @@ function summarize(timerMode, config) {
 function CountdownScreen({
   heading,
   exerciseName,
+  sideLabel,
   summary,
   remainingSeconds,
   skipLabel,
@@ -41,6 +48,9 @@ function CountdownScreen({
         {heading}
       </p>
       <p className="text-3xl font-semibold">{exerciseName}</p>
+      {sideLabel && (
+        <p className="-mt-3 text-base font-medium text-neutral-600 dark:text-neutral-300">{sideLabel}</p>
+      )}
       <p className="text-base text-neutral-500 dark:text-neutral-400">{summary}</p>
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -63,13 +73,25 @@ export default function SteppedSession({ steps, session, dispatch }) {
     transitionRemaining,
     leadIn,
     leadInRemaining,
+    side,
+    pendingPosition,
     paused,
     started,
     stepState,
   } = session
   const config = timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
   const currentExercise = steps[currentIndex]
-  const nextExercise = steps[currentIndex + 1]
+
+  // On a unilateral workout the sequence is the whole list on the left, then the
+  // whole list on the right, so what comes next isn't simply currentIndex + 1.
+  const position = {
+    currentIndex,
+    side,
+    exerciseCount: steps.length,
+    unilateral: isUnilateral(timerMode, config),
+  }
+  const forward = advanceSessionPosition(position)
+  const backward = retreatSessionPosition(position)
 
   const countdownRemaining = leadIn ? leadInRemaining : transitioning ? transitionRemaining : null
 
@@ -91,23 +113,37 @@ export default function SteppedSession({ steps, session, dispatch }) {
       return {
         heading: 'Get Into Position',
         exerciseName: currentExercise.name,
+        sideLabel: side ? SIDE_LABELS[side] : null,
         remainingSeconds: leadInRemaining,
         skipLabel: 'Skip, I\u2019m ready',
         onSkip: () => dispatch({ type: 'SKIP_LEAD_IN' }),
       }
     }
-    if (transitioning && nextExercise) {
+    if (transitioning && pendingPosition) {
+      const switchingSides = pendingPosition.side !== side
       return {
-        heading: 'Up Next',
-        exerciseName: nextExercise.name,
+        heading: switchingSides ? 'Switch Sides' : 'Up Next',
+        exerciseName: steps[pendingPosition.currentIndex].name,
+        sideLabel: pendingPosition.side ? SIDE_LABELS[pendingPosition.side] : null,
         remainingSeconds: transitionRemaining,
-        skipLabel: 'Skip wait, start now',
+        skipLabel: switchingSides ? 'Skip wait, I\u2019m over' : 'Skip wait, start now',
         onSkip: () => dispatch({ type: 'SKIP_TRANSITION' }),
       }
     }
     return null
   }
   const countdown = activeCountdown()
+
+  /** What the rest timer is resting for: another round, the next movement, or the end. */
+  function restNextUp() {
+    if (timerMode !== 'interval' || stepState.phase !== 'rest') return null
+    if (stepState.round < config.rounds) {
+      return `Next: ${currentExercise.name}, round ${stepState.round + 1} of ${config.rounds}`
+    }
+    if (forward.done) return 'Last round \u2014 the workout ends after this'
+    const upcoming = steps[forward.currentIndex].name
+    return forward.side === side ? `Next: ${upcoming}` : `Next: ${upcoming}, ${SIDE_LABELS[forward.side].toLowerCase()}`
+  }
 
   return (
     <div className="flex flex-1 flex-col">
@@ -126,9 +162,22 @@ export default function SteppedSession({ steps, session, dispatch }) {
               at 0 elapsed, so the same step component doubles as the paused "ready"
               screen before Start is tapped (item 7) - only the transport row changes. */}
           {timerMode === 'interval' ? (
-            <IntervalStep key={currentIndex} config={config} stepState={stepState} onAdjustConfig={adjustConfig} />
+            <IntervalStep
+              key={`${side}-${currentIndex}`}
+              config={config}
+              stepState={stepState}
+              side={side}
+              nextUp={restNextUp()}
+              onAdjustConfig={adjustConfig}
+            />
           ) : (
-            <PailsRailsStep key={currentIndex} config={config} stepState={stepState} onAdjustConfig={adjustConfig} />
+            <PailsRailsStep
+              key={`${side}-${currentIndex}`}
+              config={config}
+              stepState={stepState}
+              side={side}
+              onAdjustConfig={adjustConfig}
+            />
           )}
 
           <div className="flex items-center justify-center gap-3 pb-4">
@@ -138,7 +187,7 @@ export default function SteppedSession({ steps, session, dispatch }) {
                   type="button"
                   className={iconButtonClass}
                   onClick={() => dispatch({ type: 'PREV' })}
-                  disabled={currentIndex === 0}
+                  disabled={!backward}
                 >
                   ⏮ Prev
                 </button>
@@ -160,7 +209,7 @@ export default function SteppedSession({ steps, session, dispatch }) {
                   type="button"
                   className={iconButtonClass}
                   onClick={() => dispatch({ type: 'NEXT' })}
-                  disabled={currentIndex === steps.length - 1}
+                  disabled={forward.done}
                 >
                   Next ⏭
                 </button>

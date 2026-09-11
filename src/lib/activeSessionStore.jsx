@@ -3,9 +3,13 @@ import { getSetting, setSetting } from '../db'
 import {
   LEAD_IN_SECONDS,
   TRANSITION_SECONDS,
+  advanceSessionPosition,
   endOpenWorkSet,
   initOpenWorkState,
+  initSessionSide,
   initStepState,
+  isUnilateral,
+  retreatSessionPosition,
   skipStepState,
   stepPhaseConfigField,
   tickOpenWorkState,
@@ -13,6 +17,10 @@ import {
 } from './sessionEngine'
 
 const STORAGE_KEY = 'activeSession'
+
+/** Bumped when the stored session's shape changes in a way an older mirrored
+ * copy can't be read as. A mismatch is dropped rather than half-restored. */
+const SESSION_SHAPE = 2
 const PERSIST_INTERVAL_MS = 3000
 const IDLE_SESSION = { status: 'idle' }
 
@@ -28,6 +36,41 @@ function freshStepState(state) {
   return initStepState(state.timerMode, configFor(state.timerMode, state.config))
 }
 
+function sessionPosition(state) {
+  return {
+    currentIndex: state.currentIndex,
+    side: state.side,
+    exerciseCount: state.exerciseIds.length,
+    unilateral: isUnilateral(state.timerMode, configFor(state.timerMode, state.config)),
+  }
+}
+
+/** Move to an exercise/side, always restarting that exercise's phase machine. */
+function atPosition(state, position) {
+  const moved = { ...state, currentIndex: position.currentIndex, side: position.side }
+  return {
+    ...moved,
+    stepState: freshStepState(moved),
+    transitioning: false,
+    transitionRemaining: TRANSITION_SECONDS,
+    pendingPosition: null,
+  }
+}
+
+/** The current exercise has finished: hand over to the next one, or end the session. */
+function afterExercise(state, stepState, sessionElapsedSeconds) {
+  const next = advanceSessionPosition(sessionPosition(state))
+  const base = { ...state, stepState, sessionElapsedSeconds }
+  if (next.done) {
+    return {
+      ...base,
+      status: 'complete',
+      completion: { durationSeconds: sessionElapsedSeconds, setsCompleted: null },
+    }
+  }
+  return { ...base, transitioning: true, transitionRemaining: TRANSITION_SECONDS, pendingPosition: next }
+}
+
 function reducer(state, action) {
   switch (action.type) {
     case 'HYDRATE':
@@ -37,6 +80,7 @@ function reducer(state, action) {
       const { templateId, workoutName, category, exerciseIds, timerMode, config } = action
       const base = {
         status: 'active',
+        shape: SESSION_SHAPE,
         templateId: templateId ?? null,
         workoutName,
         category,
@@ -51,6 +95,8 @@ function reducer(state, action) {
         transitionRemaining: TRANSITION_SECONDS,
         leadIn: false,
         leadInRemaining: LEAD_IN_SECONDS,
+        side: initSessionSide(timerMode, configFor(timerMode, config)),
+        pendingPosition: null,
         completion: null,
       }
       return timerMode === 'open_work'
@@ -102,40 +148,14 @@ function reducer(state, action) {
       }
 
       if (state.transitioning) {
-        if (state.transitionRemaining <= 1) {
-          return {
-            ...state,
-            transitioning: false,
-            transitionRemaining: TRANSITION_SECONDS,
-            currentIndex: state.currentIndex + 1,
-            stepState: freshStepState(state),
-          }
-        }
+        if (state.transitionRemaining <= 1) return atPosition(state, state.pendingPosition)
         return { ...state, transitionRemaining: state.transitionRemaining - 1 }
       }
 
       const modeConfig = configFor(state.timerMode, state.config)
       const nextStep = tickStepState(state.timerMode, state.stepState, modeConfig)
       const sessionElapsedSeconds = state.sessionElapsedSeconds + 1
-      if (nextStep.done) {
-        const isLast = state.currentIndex >= state.exerciseIds.length - 1
-        if (isLast) {
-          return {
-            ...state,
-            stepState: nextStep,
-            sessionElapsedSeconds,
-            status: 'complete',
-            completion: { durationSeconds: sessionElapsedSeconds, setsCompleted: null },
-          }
-        }
-        return {
-          ...state,
-          stepState: nextStep,
-          sessionElapsedSeconds,
-          transitioning: true,
-          transitionRemaining: TRANSITION_SECONDS,
-        }
-      }
+      if (nextStep.done) return afterExercise(state, nextStep, sessionElapsedSeconds)
       return { ...state, stepState: nextStep, sessionElapsedSeconds }
     }
 
@@ -145,48 +165,29 @@ function reducer(state, action) {
       if (state.status !== 'active' || state.timerMode === 'open_work' || state.transitioning) return state
       const modeConfig = configFor(state.timerMode, state.config)
       const nextStep = skipStepState(state.timerMode, state.stepState, modeConfig)
-      if (nextStep.done) {
-        const isLast = state.currentIndex >= state.exerciseIds.length - 1
-        if (isLast) {
-          return {
-            ...state,
-            stepState: nextStep,
-            status: 'complete',
-            completion: { durationSeconds: state.sessionElapsedSeconds, setsCompleted: null },
-          }
-        }
-        return { ...state, stepState: nextStep, transitioning: true, transitionRemaining: TRANSITION_SECONDS }
-      }
+      if (nextStep.done) return afterExercise(state, nextStep, state.sessionElapsedSeconds)
       return { ...state, stepState: nextStep }
     }
 
-    // Exercise-level stepping. No wrap-around: a no-op past either end. Stepping to a
-    // new step always resets its timer to the configured starting value.
+    // Exercise-level stepping, one position at a time along the session sequence.
+    // On a unilateral workout that sequence runs the whole list on the left and
+    // then the whole list on the right, so stepping forward off the last exercise
+    // of the left pass lands on the first exercise of the right pass - and Previous
+    // comes back the same way. Neither wraps past the two real ends. Stepping
+    // always resets the new exercise's timer to its configured starting value.
     case 'NEXT': {
       if (state.status !== 'active' || state.timerMode === 'open_work') return state
-      if (state.transitioning) {
-        return {
-          ...state,
-          transitioning: false,
-          transitionRemaining: TRANSITION_SECONDS,
-          currentIndex: state.currentIndex + 1,
-          stepState: freshStepState(state),
-        }
-      }
-      if (state.currentIndex >= state.exerciseIds.length - 1) return state
-      return { ...state, currentIndex: state.currentIndex + 1, stepState: freshStepState(state) }
+      if (state.transitioning) return atPosition(state, state.pendingPosition)
+      const next = advanceSessionPosition(sessionPosition(state))
+      if (next.done) return state
+      return atPosition(state, next)
     }
 
     case 'PREV': {
       if (state.status !== 'active' || state.timerMode === 'open_work') return state
-      if (state.currentIndex <= 0) return state
-      return {
-        ...state,
-        transitioning: false,
-        transitionRemaining: TRANSITION_SECONDS,
-        currentIndex: state.currentIndex - 1,
-        stepState: freshStepState(state),
-      }
+      const previous = retreatSessionPosition(sessionPosition(state))
+      if (!previous) return state
+      return atPosition(state, previous)
     }
 
     // The "Skip, I'm ready" control on the get-into-position screen.
@@ -197,13 +198,7 @@ function reducer(state, action) {
     // The "Skip wait, start now" control on the between-exercise Up Next screen.
     case 'SKIP_TRANSITION':
       if (!state.transitioning) return state
-      return {
-        ...state,
-        transitioning: false,
-        transitionRemaining: TRANSITION_SECONDS,
-        currentIndex: state.currentIndex + 1,
-        stepState: freshStepState(state),
-      }
+      return atPosition(state, state.pendingPosition)
 
     // A chip edit (Work/Rest/Hold/Rounds...). Retuning the phase currently running
     // shifts what's left of it by the same amount; editing Rounds clamps the current
@@ -282,7 +277,9 @@ export function ActiveSessionProvider({ children }) {
     let cancelled = false
     getSetting(STORAGE_KEY).then((stored) => {
       if (cancelled) return
-      if (stored && stored.status === 'active') dispatch({ type: 'HYDRATE', session: stored })
+      if (stored && stored.status === 'active' && stored.shape === SESSION_SHAPE) {
+        dispatch({ type: 'HYDRATE', session: stored })
+      }
       setHydrated(true)
     })
     return () => {

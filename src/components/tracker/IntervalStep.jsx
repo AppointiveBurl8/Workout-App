@@ -3,6 +3,7 @@ import { formatMMSS } from '../../lib/formatDuration'
 import {
   INTERVAL_PHASE_COLORS,
   INTERVAL_PHASE_LABELS,
+  SIDE_LABELS,
   stepPhaseTotal,
 } from '../../lib/sessionEngine'
 import AdjustableChip from './AdjustableChip'
@@ -13,7 +14,7 @@ import ProgressBar from './ProgressBar'
  * store so it survives leaving the Tracker tab. This component just renders the
  * current step state and forwards chip edits / phase-cue audio for it.
  */
-export default function IntervalStep({ config, stepState, onAdjustConfig }) {
+export default function IntervalStep({ config, stepState, side, nextUp, onAdjustConfig }) {
   usePhaseTransitionCues(stepState.phase, stepState.round, stepState.done)
 
   const phaseTotal = stepPhaseTotal('interval', stepState, config)
@@ -24,9 +25,9 @@ export default function IntervalStep({ config, stepState, onAdjustConfig }) {
       <p className={`text-xl font-semibold uppercase tracking-wide ${colors.label}`}>
         {INTERVAL_PHASE_LABELS[stepState.phase]}
       </p>
-      {stepState.side && (
+      {side && (
         <p className="-mt-4 text-base font-medium text-neutral-600 dark:text-neutral-300">
-          {stepState.side === 'left' ? 'Left side' : 'Right side'}
+          {SIDE_LABELS[side]}
         </p>
       )}
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(stepState.remainingSeconds)}</p>
@@ -39,6 +40,13 @@ export default function IntervalStep({ config, stepState, onAdjustConfig }) {
       <p className="text-base text-neutral-500 dark:text-neutral-400">
         Round {stepState.round} of {config.rounds}
       </p>
+
+      {/* During rest the useful question is what you're resting for. */}
+      {nextUp && (
+        <p className="-mt-3 max-w-xs text-base font-medium text-neutral-700 dark:text-neutral-200">
+          {nextUp}
+        </p>
+      )}
 
       <div className="flex flex-wrap justify-center gap-3">
         <AdjustableChip
