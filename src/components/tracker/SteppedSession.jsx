@@ -24,13 +24,23 @@ function summarize(timerMode, config) {
   return `Stretch ${formatMMSS(holdSeconds)} / PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
 }
 
-function TransitionScreen({ nextExercise, summary, remainingSeconds, paused, onTogglePause, onSkip }) {
+/** Serves both waits: the get-into-position lead-in and the between-exercise one. */
+function CountdownScreen({
+  heading,
+  exerciseName,
+  summary,
+  remainingSeconds,
+  skipLabel,
+  paused,
+  onTogglePause,
+  onSkip,
+}) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 p-6 text-center">
       <p className="text-base font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-        Up Next
+        {heading}
       </p>
-      <p className="text-3xl font-semibold">{nextExercise.name}</p>
+      <p className="text-3xl font-semibold">{exerciseName}</p>
       <p className="text-base text-neutral-500 dark:text-neutral-400">{summary}</p>
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -38,7 +48,7 @@ function TransitionScreen({ nextExercise, summary, remainingSeconds, paused, onT
           {paused ? 'Resume' : 'Pause'}
         </button>
         <button type="button" className={primaryButtonClass} onClick={onSkip}>
-          Skip wait, start now
+          {skipLabel}
         </button>
       </div>
     </div>
@@ -46,16 +56,28 @@ function TransitionScreen({ nextExercise, summary, remainingSeconds, paused, onT
 }
 
 export default function SteppedSession({ steps, session, dispatch }) {
-  const { timerMode, currentIndex, transitioning, transitionRemaining, paused, started, stepState } = session
+  const {
+    timerMode,
+    currentIndex,
+    transitioning,
+    transitionRemaining,
+    leadIn,
+    leadInRemaining,
+    paused,
+    started,
+    stepState,
+  } = session
   const config = timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
   const currentExercise = steps[currentIndex]
   const nextExercise = steps[currentIndex + 1]
 
+  const countdownRemaining = leadIn ? leadInRemaining : transitioning ? transitionRemaining : null
+
   useEffect(() => {
-    if (transitioning && transitionRemaining <= 3 && transitionRemaining >= 1) {
+    if (countdownRemaining !== null && countdownRemaining <= 3 && countdownRemaining >= 1) {
       playTone('tick')
     }
-  }, [transitioning, transitionRemaining])
+  }, [countdownRemaining])
 
   const handleEndWorkout = () => {
     if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
@@ -64,16 +86,37 @@ export default function SteppedSession({ steps, session, dispatch }) {
 
   const adjustConfig = (field, value) => dispatch({ type: 'ADJUST_CONFIG', field, value })
 
+  function activeCountdown() {
+    if (leadIn) {
+      return {
+        heading: 'Get Into Position',
+        exerciseName: currentExercise.name,
+        remainingSeconds: leadInRemaining,
+        skipLabel: 'Skip, I\u2019m ready',
+        onSkip: () => dispatch({ type: 'SKIP_LEAD_IN' }),
+      }
+    }
+    if (transitioning && nextExercise) {
+      return {
+        heading: 'Up Next',
+        exerciseName: nextExercise.name,
+        remainingSeconds: transitionRemaining,
+        skipLabel: 'Skip wait, start now',
+        onSkip: () => dispatch({ type: 'SKIP_TRANSITION' }),
+      }
+    }
+    return null
+  }
+  const countdown = activeCountdown()
+
   return (
     <div className="flex flex-1 flex-col">
-      {transitioning && nextExercise ? (
-        <TransitionScreen
-          nextExercise={nextExercise}
+      {countdown ? (
+        <CountdownScreen
+          {...countdown}
           summary={summarize(timerMode, config)}
-          remainingSeconds={transitionRemaining}
           paused={paused}
           onTogglePause={() => dispatch({ type: 'TOGGLE_PAUSE' })}
-          onSkip={() => dispatch({ type: 'SKIP_TRANSITION' })}
         />
       ) : (
         <>

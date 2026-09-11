@@ -68,6 +68,27 @@ constant - see `specs/01-data-model.md`), so every round additionally runs that
 whole sequence once for the Left side, a side "Switch" cue, then again for the
 Right side, before advancing to the next round.
 
+### Lead-in countdown (Interval, Pails/Rails)
+
+Tapping Start on a stretching or mobility workout opens a 10-second
+get-into-position countdown (`LEAD_IN_SECONDS`) before the first phase begins:
+both modes start in a held position, and you can't be in it at the same moment
+you tap the button. The screen names the movement you're getting into, and
+offers Pause (a hold can need longer than ten seconds to settle into) and "Skip,
+I'm ready".
+
+It's the same `CountdownScreen` component as the between-exercise "Up Next" wait
+and ticks the same audio cue over its last three seconds, but it's separate
+state (`leadIn`/`leadInRemaining`) rather than a flag on `transitioning` - the
+transition countdown advances `currentIndex` when it completes and this one must
+not. The lead-in leaves `stepState` untouched, so the first phase starts at its
+full configured duration, and doesn't advance `sessionElapsedSeconds`, so the
+ten seconds aren't logged as workout time.
+
+Open Work doesn't get one. It's self-paced against a session clock with no held
+position to arrange, and its own "End Set / Start Rest" control already sets the
+pace.
+
 ### Shared transport (Interval, Pails/Rails)
 
 Previous / Pause-Resume / Skip / Next, operating on the exercise sequence:
@@ -110,6 +131,13 @@ before the first timer counts down. This applies to all three modes.
 
 ## Known Issues / Changelog
 
+- **Added** - a 10-second get-into-position countdown when Start is tapped on an
+  Interval or Pails/Rails workout - see "Lead-in countdown" above. *Note: there
+  are two taps between the Library and a running timer - "Begin" on the Start
+  Workout config screen, then "Start" on the Tracker's ready screen. The
+  countdown hangs off the second one, the tap that actually starts the clock,
+  which keeps the deliberate start gate intact. Flag it if "Begin" should instead
+  go straight into the countdown and drop the ready screen.*
 - **Changed** - Reps moved off `Exercise.repsLabel` (free text, per-exercise) onto
   a structured `SetsRepsScheme` - first tried per-exercise-slot
   (`WorkoutTemplate.setsReps[]`), then corrected after usability feedback to a

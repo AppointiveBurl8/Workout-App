@@ -10,6 +10,7 @@
 export const SWITCH_SECONDS = 3 // Pails/Rails: PAILS hold -> RAILS hold direction change
 export const SIDE_SWITCH_SECONDS = 3 // Left pass -> Right pass, when sideMode is unilateral
 export const TRANSITION_SECONDS = 10 // "Up Next" countdown between exercises
+export const LEAD_IN_SECONDS = 10 // Get-into-position countdown before the first phase
 
 // ---------------- Interval ----------------
 

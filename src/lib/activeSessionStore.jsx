@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react'
 import { getSetting, setSetting } from '../db'
 import {
+  LEAD_IN_SECONDS,
   TRANSITION_SECONDS,
   endOpenWorkSet,
   initOpenWorkState,
@@ -48,6 +49,8 @@ function reducer(state, action) {
         sessionElapsedSeconds: 0,
         transitioning: false,
         transitionRemaining: TRANSITION_SECONDS,
+        leadIn: false,
+        leadInRemaining: LEAD_IN_SECONDS,
         completion: null,
       }
       return timerMode === 'open_work'
@@ -56,9 +59,14 @@ function reducer(state, action) {
     }
 
     // The tap that actually starts the workout - nothing ticks before this (item 7).
-    case 'START':
+    // Interval and Pails/Rails open on a lead-in countdown: both begin in a held
+    // position, and you can't be in it at the same moment you tap the button.
+    case 'START': {
       if (state.status !== 'active') return state
-      return { ...state, started: true, paused: false }
+      const running = { ...state, started: true, paused: false }
+      if (state.timerMode === 'open_work') return running
+      return { ...running, leadIn: true, leadInRemaining: LEAD_IN_SECONDS }
+    }
 
     case 'TOGGLE_PAUSE':
       if (state.status !== 'active' || !state.started) return state
@@ -81,6 +89,16 @@ function reducer(state, action) {
           }
         }
         return { ...state, openWork }
+      }
+
+      // Counts down before the first phase, so it neither advances the exercise
+      // nor accumulates session time - the step is already sitting at its full
+      // configured duration waiting to start.
+      if (state.leadIn) {
+        if (state.leadInRemaining <= 1) {
+          return { ...state, leadIn: false, leadInRemaining: LEAD_IN_SECONDS }
+        }
+        return { ...state, leadInRemaining: state.leadInRemaining - 1 }
       }
 
       if (state.transitioning) {
@@ -170,6 +188,11 @@ function reducer(state, action) {
         stepState: freshStepState(state),
       }
     }
+
+    // The "Skip, I'm ready" control on the get-into-position screen.
+    case 'SKIP_LEAD_IN':
+      if (!state.leadIn) return state
+      return { ...state, leadIn: false, leadInRemaining: LEAD_IN_SECONDS }
 
     // The "Skip wait, start now" control on the between-exercise Up Next screen.
     case 'SKIP_TRANSITION':
