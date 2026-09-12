@@ -14,18 +14,14 @@ export const LEAD_IN_SECONDS = 10 // Get-into-position countdown before the firs
 // ---------------- Interval ----------------
 
 export function initIntervalStepState(config) {
-  return { phase: 'work', round: 1, remainingSeconds: config.workSeconds, done: false }
+  return { phase: 'work', remainingSeconds: config.workSeconds, done: false }
 }
 
 function advanceIntervalPhase(state, config) {
-  const { workSeconds, restSeconds, rounds } = config
   if (state.phase === 'work') {
-    return { ...state, phase: 'rest', remainingSeconds: restSeconds }
+    return { ...state, phase: 'rest', remainingSeconds: config.restSeconds }
   }
-  // phase === 'rest'
-  if (state.round < rounds) {
-    return { ...state, phase: 'work', round: state.round + 1, remainingSeconds: workSeconds }
-  }
+  // phase === 'rest' - one exercise's turn is over; the session decides what's next
   return { ...state, done: true, remainingSeconds: 0 }
 }
 
@@ -48,11 +44,11 @@ function intervalPhaseTotal(state, config) {
 // ---------------- Pails/Rails ----------------
 
 export function initPailsRailsStepState(config) {
-  return { phase: 'stretch', round: 1, remainingSeconds: config.holdSeconds, done: false }
+  return { phase: 'stretch', remainingSeconds: config.holdSeconds, done: false }
 }
 
 function advancePailsRailsPhase(state, config) {
-  const { holdSeconds, rampSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = config
+  const { rampSeconds, pailsHoldSeconds, railsHoldSeconds } = config
   switch (state.phase) {
     case 'stretch':
       return { ...state, phase: 'ramp', remainingSeconds: rampSeconds }
@@ -63,9 +59,6 @@ function advancePailsRailsPhase(state, config) {
     case 'switch':
       return { ...state, phase: 'rails', remainingSeconds: railsHoldSeconds }
     case 'rails':
-      if (state.round < rounds) {
-        return { ...state, phase: 'stretch', round: state.round + 1, remainingSeconds: holdSeconds }
-      }
       return { ...state, done: true, remainingSeconds: 0 }
     default:
       return state
@@ -164,10 +157,14 @@ export function stepPhaseColors(timerMode, phase) {
 // ---------------- Session position: which exercise, which side ----------------
 
 /**
- * Unilateral work runs the whole exercise list on the left, then the whole list
- * again on the right - not left-then-right inside each exercise. One setup per
- * side beats one per exercise, so the side belongs to the session rather than to
- * any single movement's phase machine.
+ * A session is a circuit: a round is one pass through every exercise, so an
+ * exercise's phase machine runs exactly one round's worth of work and the session
+ * decides what comes next. Both the round and the side therefore live on the
+ * session, not inside any movement's machine.
+ *
+ * The side is the outermost loop - every round of every exercise on the left, then
+ * the same again on the right - so a session switches sides once, rather than once
+ * per round. Setting up on a side is the expensive part.
  */
 export function isUnilateral(timerMode, config) {
   if (timerMode === 'pails_rails') return true
@@ -179,22 +176,42 @@ export function initSessionSide(timerMode, config) {
   return isUnilateral(timerMode, config) ? 'left' : null
 }
 
+export function initSessionPosition(timerMode, config) {
+  return { currentIndex: 0, round: 1, side: initSessionSide(timerMode, config) }
+}
+
 /** Where the session goes once the current exercise's phase machine finishes. */
-export function advanceSessionPosition({ currentIndex, side, exerciseCount, unilateral }) {
+export function advanceSessionPosition({ currentIndex, round, side, exerciseCount, rounds, unilateral }) {
   if (currentIndex < exerciseCount - 1) {
-    return { currentIndex: currentIndex + 1, side, done: false }
+    return { currentIndex: currentIndex + 1, round, side, done: false }
+  }
+  if (round < rounds) {
+    return { currentIndex: 0, round: round + 1, side, done: false }
   }
   if (unilateral && side === 'left') {
-    return { currentIndex: 0, side: 'right', done: false }
+    return { currentIndex: 0, round: 1, side: 'right', done: false }
   }
-  return { currentIndex, side, done: true }
+  return { currentIndex, round, side, done: true }
 }
 
 /** The mirror, for Previous. Null once there's nothing before the current spot. */
-export function retreatSessionPosition({ currentIndex, side, exerciseCount, unilateral }) {
-  if (currentIndex > 0) return { currentIndex: currentIndex - 1, side }
-  if (unilateral && side === 'right') return { currentIndex: exerciseCount - 1, side: 'left' }
+export function retreatSessionPosition({ currentIndex, round, side, exerciseCount, rounds, unilateral }) {
+  if (currentIndex > 0) return { currentIndex: currentIndex - 1, round, side }
+  if (round > 1) return { currentIndex: exerciseCount - 1, round: round - 1, side }
+  if (unilateral && side === 'right') return { currentIndex: exerciseCount - 1, round: rounds, side: 'left' }
   return null
+}
+
+/**
+ * Whether a handover needs its own countdown screen. Interval ends every exercise
+ * on its configured Rest, which already _is_ the gap between movements - putting a
+ * countdown after it would just be resting twice over. Pails/Rails ends on a hold
+ * with nothing after it, so it needs one. A side change always gets one either
+ * way: that's a physical reposition, not a rest.
+ */
+export function needsTransitionCountdown(timerMode, fromSide, toSide) {
+  if (fromSide !== toSide) return true
+  return timerMode !== 'interval'
 }
 
 export const SIDE_LABELS = { left: 'Left side', right: 'Right side' }

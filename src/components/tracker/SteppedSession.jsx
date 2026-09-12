@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { playTone } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import {
@@ -73,6 +73,7 @@ export default function SteppedSession({ steps, session, dispatch }) {
     transitionRemaining,
     leadIn,
     leadInRemaining,
+    round,
     side,
     pendingPosition,
     paused,
@@ -82,12 +83,14 @@ export default function SteppedSession({ steps, session, dispatch }) {
   const config = timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
   const currentExercise = steps[currentIndex]
 
-  // On a unilateral workout the sequence is the whole list on the left, then the
-  // whole list on the right, so what comes next isn't simply currentIndex + 1.
+  // The session is a circuit - the exercise list per round, and on a unilateral
+  // workout all of that once per side - so what comes next isn't currentIndex + 1.
   const position = {
     currentIndex,
+    round,
     side,
     exerciseCount: steps.length,
+    rounds: config.rounds,
     unilateral: isUnilateral(timerMode, config),
   }
   const forward = advanceSessionPosition(position)
@@ -100,6 +103,15 @@ export default function SteppedSession({ steps, session, dispatch }) {
       playTone('tick')
     }
   }, [countdownRemaining])
+
+  // Completing a circuit is worth a cue of its own. It can't live in the step
+  // component any more: a round now ends by moving to a different exercise, which
+  // remounts that component and loses the before/after it would compare.
+  const prevRoundRef = useRef(round)
+  useEffect(() => {
+    if (round > prevRoundRef.current) playTone('roundComplete')
+    prevRoundRef.current = round
+  }, [round])
 
   const handleEndWorkout = () => {
     if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
@@ -121,10 +133,12 @@ export default function SteppedSession({ steps, session, dispatch }) {
     }
     if (transitioning && pendingPosition) {
       const switchingSides = pendingPosition.side !== side
+      const sideLabel = pendingPosition.side ? SIDE_LABELS[pendingPosition.side] : null
+      const roundLabel = `Round ${pendingPosition.round} of ${config.rounds}`
       return {
         heading: switchingSides ? 'Switch Sides' : 'Up Next',
         exerciseName: steps[pendingPosition.currentIndex].name,
-        sideLabel: pendingPosition.side ? SIDE_LABELS[pendingPosition.side] : null,
+        sideLabel: sideLabel ? `${sideLabel} \u00b7 ${roundLabel}` : roundLabel,
         remainingSeconds: transitionRemaining,
         skipLabel: switchingSides ? 'Skip wait, I\u2019m over' : 'Skip wait, start now',
         onSkip: () => dispatch({ type: 'SKIP_TRANSITION' }),
@@ -134,15 +148,14 @@ export default function SteppedSession({ steps, session, dispatch }) {
   }
   const countdown = activeCountdown()
 
-  /** What the rest timer is resting for: another round, the next movement, or the end. */
+  /** What the rest timer is resting for - the whole point of the rest, really. */
   function restNextUp() {
     if (timerMode !== 'interval' || stepState.phase !== 'rest') return null
-    if (stepState.round < config.rounds) {
-      return `Next: ${currentExercise.name}, round ${stepState.round + 1} of ${config.rounds}`
-    }
-    if (forward.done) return 'Last round \u2014 the workout ends after this'
-    const upcoming = steps[forward.currentIndex].name
-    return forward.side === side ? `Next: ${upcoming}` : `Next: ${upcoming}, ${SIDE_LABELS[forward.side].toLowerCase()}`
+    if (forward.done) return 'Last one \u2014 the workout ends after this'
+    const parts = [steps[forward.currentIndex].name]
+    if (forward.side !== side) parts.push(SIDE_LABELS[forward.side].toLowerCase())
+    else if (forward.round !== round) parts.push(`round ${forward.round} of ${config.rounds}`)
+    return `Next: ${parts.join(', ')}`
   }
 
   return (
@@ -163,19 +176,23 @@ export default function SteppedSession({ steps, session, dispatch }) {
               screen before Start is tapped (item 7) - only the transport row changes. */}
           {timerMode === 'interval' ? (
             <IntervalStep
-              key={`${side}-${currentIndex}`}
+              key={`${side}-${round}-${currentIndex}`}
               config={config}
               stepState={stepState}
               side={side}
+              round={round}
+              rounds={config.rounds}
               nextUp={restNextUp()}
               onAdjustConfig={adjustConfig}
             />
           ) : (
             <PailsRailsStep
-              key={`${side}-${currentIndex}`}
+              key={`${side}-${round}-${currentIndex}`}
               config={config}
               stepState={stepState}
               side={side}
+              round={round}
+              rounds={config.rounds}
               onAdjustConfig={adjustConfig}
             />
           )}

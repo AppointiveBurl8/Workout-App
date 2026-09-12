@@ -6,9 +6,10 @@ import {
   advanceSessionPosition,
   endOpenWorkSet,
   initOpenWorkState,
-  initSessionSide,
+  initSessionPosition,
   initStepState,
   isUnilateral,
+  needsTransitionCountdown,
   retreatSessionPosition,
   skipStepState,
   stepPhaseConfigField,
@@ -20,7 +21,7 @@ const STORAGE_KEY = 'activeSession'
 
 /** Bumped when the stored session's shape changes in a way an older mirrored
  * copy can't be read as. A mismatch is dropped rather than half-restored. */
-const SESSION_SHAPE = 2
+const SESSION_SHAPE = 3
 const PERSIST_INTERVAL_MS = 3000
 const IDLE_SESSION = { status: 'idle' }
 
@@ -37,17 +38,25 @@ function freshStepState(state) {
 }
 
 function sessionPosition(state) {
+  const modeConfig = configFor(state.timerMode, state.config)
   return {
     currentIndex: state.currentIndex,
+    round: state.round,
     side: state.side,
     exerciseCount: state.exerciseIds.length,
-    unilateral: isUnilateral(state.timerMode, configFor(state.timerMode, state.config)),
+    rounds: modeConfig.rounds,
+    unilateral: isUnilateral(state.timerMode, modeConfig),
   }
 }
 
-/** Move to an exercise/side, always restarting that exercise's phase machine. */
+/** Move to a slot in the circuit, always restarting that exercise's phase machine. */
 function atPosition(state, position) {
-  const moved = { ...state, currentIndex: position.currentIndex, side: position.side }
+  const moved = {
+    ...state,
+    currentIndex: position.currentIndex,
+    round: position.round,
+    side: position.side,
+  }
   return {
     ...moved,
     stepState: freshStepState(moved),
@@ -57,7 +66,7 @@ function atPosition(state, position) {
   }
 }
 
-/** The current exercise has finished: hand over to the next one, or end the session. */
+/** The current exercise has finished: hand over to the next slot, or end the session. */
 function afterExercise(state, stepState, sessionElapsedSeconds) {
   const next = advanceSessionPosition(sessionPosition(state))
   const base = { ...state, stepState, sessionElapsedSeconds }
@@ -67,6 +76,9 @@ function afterExercise(state, stepState, sessionElapsedSeconds) {
       status: 'complete',
       completion: { durationSeconds: sessionElapsedSeconds, setsCompleted: null },
     }
+  }
+  if (!needsTransitionCountdown(state.timerMode, state.side, next.side)) {
+    return atPosition(base, next)
   }
   return { ...base, transitioning: true, transitionRemaining: TRANSITION_SECONDS, pendingPosition: next }
 }
@@ -89,13 +101,12 @@ function reducer(state, action) {
         config,
         started: false,
         paused: false,
-        currentIndex: 0,
         sessionElapsedSeconds: 0,
         transitioning: false,
         transitionRemaining: TRANSITION_SECONDS,
         leadIn: false,
         leadInRemaining: LEAD_IN_SECONDS,
-        side: initSessionSide(timerMode, configFor(timerMode, config)),
+        ...initSessionPosition(timerMode, configFor(timerMode, config)),
         pendingPosition: null,
         completion: null,
       }
@@ -169,12 +180,13 @@ function reducer(state, action) {
       return { ...state, stepState: nextStep }
     }
 
-    // Exercise-level stepping, one position at a time along the session sequence.
-    // On a unilateral workout that sequence runs the whole list on the left and
-    // then the whole list on the right, so stepping forward off the last exercise
-    // of the left pass lands on the first exercise of the right pass - and Previous
-    // comes back the same way. Neither wraps past the two real ends. Stepping
-    // always resets the new exercise's timer to its configured starting value.
+    // Exercise-level stepping, one slot at a time along the session sequence: the
+    // exercise list, repeated per round, and on a unilateral workout the whole of
+    // that repeated once per side. So stepping forward off the last exercise of a
+    // round lands on the first exercise of the next one, and off the last round of
+    // the left pass onto the right - and Previous comes back the same way. Neither
+    // wraps past the two real ends. Stepping always resets the new exercise's timer
+    // to its configured starting value.
     case 'NEXT': {
       if (state.status !== 'active' || state.timerMode === 'open_work') return state
       if (state.transitioning) return atPosition(state, state.pendingPosition)
@@ -209,9 +221,10 @@ function reducer(state, action) {
       const oldConfig = state.config[modeKey]
       const { field, value } = action
       const newModeConfig = { ...oldConfig, [field]: value }
+      let round = state.round
       let stepState = state.stepState
       if (field === 'rounds') {
-        stepState = { ...stepState, round: Math.min(stepState.round, value) }
+        round = Math.min(round, value)
       } else {
         const runningField = stepPhaseConfigField(state.timerMode, stepState.phase)
         if (runningField === field) {
@@ -221,7 +234,7 @@ function reducer(state, action) {
           }
         }
       }
-      return { ...state, config: { ...state.config, [modeKey]: newModeConfig }, stepState }
+      return { ...state, round, config: { ...state.config, [modeKey]: newModeConfig }, stepState }
     }
 
     case 'ADJUST_OPEN_WORK_CONFIG': {

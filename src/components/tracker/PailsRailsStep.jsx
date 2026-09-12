@@ -14,8 +14,8 @@ import ProgressBar from './ProgressBar'
  * store so it survives leaving the Tracker tab. This component just renders the
  * current step state and forwards chip edits / phase-cue audio for it.
  */
-export default function PailsRailsStep({ config, stepState, side, onAdjustConfig }) {
-  usePhaseTransitionCues(stepState.phase, stepState.round, stepState.done)
+export default function PailsRailsStep({ config, stepState, side, round, rounds, onAdjustConfig }) {
+  usePhaseTransitionCues(stepState.phase, round, stepState.done)
 
   const phaseTotal = stepPhaseTotal('pails_rails', stepState, config)
   const colors = PAILS_RAILS_PHASE_COLORS[stepState.phase]
@@ -38,7 +38,7 @@ export default function PailsRailsStep({ config, stepState, side, onAdjustConfig
         />
       </div>
       <p className="text-base text-neutral-500 dark:text-neutral-400">
-        Round {stepState.round} of {config.rounds}
+        Round {round} of {rounds}
       </p>
 
       <div className="flex flex-wrap justify-center gap-3">
