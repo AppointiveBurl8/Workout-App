@@ -158,13 +158,14 @@ export function stepPhaseColors(timerMode, phase) {
 
 /**
  * A session is a circuit: a round is one pass through every exercise, so an
- * exercise's phase machine runs exactly one round's worth of work and the session
+ * exercise's phase machine runs exactly one turn's worth of work and the session
  * decides what comes next. Both the round and the side therefore live on the
  * session, not inside any movement's machine.
  *
- * The side is the outermost loop - every round of every exercise on the left, then
- * the same again on the right - so a session switches sides once, rather than once
- * per round. Setting up on a side is the expensive part.
+ * The nesting is round -> side -> exercise. A round covers both sides:
+ *
+ *   Round 1:  left (a b c), right (a b c)
+ *   Round 2:  left (a b c), right (a b c)
  */
 export function isUnilateral(timerMode, config) {
   if (timerMode === 'pails_rails') return true
@@ -185,20 +186,22 @@ export function advanceSessionPosition({ currentIndex, round, side, exerciseCoun
   if (currentIndex < exerciseCount - 1) {
     return { currentIndex: currentIndex + 1, round, side, done: false }
   }
-  if (round < rounds) {
-    return { currentIndex: 0, round: round + 1, side, done: false }
-  }
   if (unilateral && side === 'left') {
-    return { currentIndex: 0, round: 1, side: 'right', done: false }
+    return { currentIndex: 0, round, side: 'right', done: false }
+  }
+  if (round < rounds) {
+    return { currentIndex: 0, round: round + 1, side: unilateral ? 'left' : null, done: false }
   }
   return { currentIndex, round, side, done: true }
 }
 
 /** The mirror, for Previous. Null once there's nothing before the current spot. */
-export function retreatSessionPosition({ currentIndex, round, side, exerciseCount, rounds, unilateral }) {
+export function retreatSessionPosition({ currentIndex, round, side, exerciseCount, unilateral }) {
   if (currentIndex > 0) return { currentIndex: currentIndex - 1, round, side }
-  if (round > 1) return { currentIndex: exerciseCount - 1, round: round - 1, side }
-  if (unilateral && side === 'right') return { currentIndex: exerciseCount - 1, round: rounds, side: 'left' }
+  if (unilateral && side === 'right') return { currentIndex: exerciseCount - 1, round, side: 'left' }
+  if (round > 1) {
+    return { currentIndex: exerciseCount - 1, round: round - 1, side: unilateral ? 'right' : null }
+  }
   return null
 }
 

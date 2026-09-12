@@ -70,8 +70,9 @@ pass, not a phase inside the exercise - see "Unilateral sides" below.
 `'bilateral'` has no side at all.
 
 During the Rest phase the timer also names what the rest is for: the next
-movement, the first movement of the next round, the fact that the side is about
-to change, or that the workout ends after this. Derived from the phase machine and
+movement, an upcoming side change, the start of the next round, or the fact that
+the workout ends after this - naming both when a round boundary changes the side
+as well ("Next: Hip Opener, left side, round 2 of 2"). Derived from the phase machine and
 the session position, so there's nothing extra to keep in sync. Only Interval has
 it - Pails/Rails has no rest phase, and Open Work has no exercise sequence to
 look ahead in.
@@ -85,27 +86,21 @@ does get the between-exercise countdown on every handover. Pails/Rails movements
 'unilateral'`, constant - see `specs/01-data-model.md`); the side is handled at
 session level, below.
 
-### Rounds are circuits; sides are passes
+### Rounds are circuits, a side at a time
 
-A session is a circuit. **A round is one pass through every exercise**, so an
-exercise's phase machine runs exactly one turn's worth of work and then hands
-back:
-
-```
-Round 1:  exercise a, exercise b, exercise c
-Round 2:  exercise a, exercise b, exercise c
-```
-
-On a unilateral workout the **side is the outer loop**: every round of every
-exercise on the left, then all of it again on the right. One side change per
-session, rather than one per round or one per exercise - setting up on a side is
-the expensive part.
+A session is a circuit, nested **round -> side -> exercise**. A round is one pass
+through every exercise on each side, so an exercise's phase machine runs exactly
+one turn's worth of work and then hands back:
 
 ```
-Left:   round 1 (a b c), round 2 (a b c)
-        -> Switch Sides
-Right:  round 1 (a b c), round 2 (a b c)
+Round 1:  left (a b c) -> Switch Sides -> right (a b c)
+Round 2:  left (a b c) -> Switch Sides -> right (a b c)
 ```
+
+Bilateral workouts are the same thing without the side layer: round 1 is a b c,
+round 2 is a b c. Either way you finish the whole list on one side before
+changing side - the side never changes between exercises - and a round ends by
+coming back to the left for the next one.
 
 So neither the round nor the side belongs to a movement's phase machine; both
 live on the session. `initIntervalStepState`/`initPailsRailsStepState` carry
@@ -114,14 +109,18 @@ sequencing as two pure mirrored functions - `advanceSessionPosition` and
 `retreatSessionPosition` - over `{ currentIndex, round, side }`:
 
 - Not on the last exercise -> next exercise, same round, same side.
-- Last exercise, rounds remaining -> first exercise, next round.
-- Last exercise of the last round, on the left -> first exercise, round 1, right.
+- Last exercise, on the left -> first exercise, same round, right side.
+- Last exercise (on the right, or bilateral), rounds remaining -> first exercise,
+  next round, back to the left.
 - Otherwise -> the session is done.
 
 `needsTransitionCountdown` decides whether a handover gets its own countdown
 screen (see Interval, above). When it does, `pendingPosition` records where that
 countdown is heading, so letting it run out, skipping it, and Next all land in
 the same place. A side change reads "Switch Sides"; anything else reads "Up Next".
+A unilateral session therefore gets `rounds × 2 - 1` of those side-change
+screens - one between the two halves of each round, and one at each round
+boundary coming back to the left.
 
 Because both functions are pure and exported, the Rest phase's next-up line and
 the Prev/Next disabled states read the same sequencing the reducer does rather
@@ -174,11 +173,11 @@ Previous / Pause-Resume / Skip / Next, operating on the exercise sequence:
   jumps straight in. On a unilateral workout the handover from the last exercise
   of the left pass to the first of the right pass is the same screen, headed
   "Switch Sides".
-- Next and Previous step along the full session sequence - the exercise list, per
-  round, and on a unilateral workout all of that once per side. So Next off the
-  last exercise of a round lands on the first exercise of the next round, and off
-  the end of the left pass onto the right; Previous comes back the same way. They
-  still stop at the two real ends of the session.
+- Next and Previous step along the full session sequence - the exercise list, once
+  per side, once per round. So Next off the last exercise of the left pass lands on
+  the first exercise of the right pass, and off the end of the right pass onto the
+  next round's left pass; Previous comes back the same way. They still stop at the
+  two real ends of the session.
 
 ### Total duration estimate
 
@@ -206,24 +205,21 @@ before the first timer counts down. This applies to all three modes.
 
 ## Known Issues / Changelog
 
-- **Changed** - a round is now one pass through every exercise (a circuit), not
-  `rounds` repeats of a single exercise before moving on - see "Rounds are
-  circuits" above. The round joined the side on the session rather than in the
-  phase machines, which now run one turn and hand back. *Consequence worth
-  knowing: an Interval handover no longer stacks the 10-second countdown on top of
-  the configured Rest, since with circuits that would mean resting twice between
-  every movement. Pails/Rails still gets the countdown - it ends on a hold. Flag
-  it if the countdown is wanted on Interval handovers too.* *Assumption: the side
-  stays the outer loop, so a unilateral session still switches sides exactly once
-  rather than once per round - that's what the previous change was for. Flag it if
-  rounds should instead alternate sides.*
-- **Changed** - unilateral sessions now run every exercise on the left and then
-  every exercise on the right, instead of switching sides inside each exercise -
-  see "Unilateral sides" above. The side moved out of the per-exercise phase
-  machines onto the session, which also retired the 3-second `SIDE_SWITCH_SECONDS`
-  cue (the side change now lands on the ordinary between-exercise countdown,
-  headed "Switch Sides") and made `stepState.side` a `session.side` prop on the
-  step components. Total duration is unaffected.
+- **Changed** - a round is now one pass through every exercise on each side, in
+  the order left (a b c), right (a b c), next round - see "Rounds are circuits, a
+  side at a time" above. Reached in two steps: rounds first stopped being repeats
+  of a single exercise before moving on (a a a, b b b, c c c), and the nesting was
+  then corrected from side-outside-round to round-outside-side. Both the round and
+  the side live on the session now rather than in the phase machines, which run one
+  turn and hand back; that retired the 3-second `SIDE_SWITCH_SECONDS` cue, since a
+  side change lands on the ordinary between-exercise countdown headed "Switch
+  Sides", and made `stepState.side`/`stepState.round` props fed from the session.
+  Total duration is unaffected throughout - the same work reordered. *Consequence
+  worth knowing: an Interval handover no longer stacks the 10-second countdown on
+  top of the configured Rest, since with circuits that would mean resting twice
+  between every movement. A side change still gets one, and Pails/Rails gets one
+  throughout - it ends on a hold. Flag it if the countdown is wanted on Interval
+  handovers too.*
 - **Added** - the Interval rest timer names what's next: the next round, the next
   movement, an upcoming side change, or the end of the workout.
 - **Added** - a 10-second get-into-position countdown when Start is tapped on an

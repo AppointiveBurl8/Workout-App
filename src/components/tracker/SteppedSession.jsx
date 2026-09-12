@@ -154,7 +154,7 @@ export default function SteppedSession({ steps, session, dispatch }) {
     if (forward.done) return 'Last one \u2014 the workout ends after this'
     const parts = [steps[forward.currentIndex].name]
     if (forward.side !== side) parts.push(SIDE_LABELS[forward.side].toLowerCase())
-    else if (forward.round !== round) parts.push(`round ${forward.round} of ${config.rounds}`)
+    if (forward.round !== round) parts.push(`round ${forward.round} of ${config.rounds}`)
     return `Next: ${parts.join(', ')}`
   }
 
