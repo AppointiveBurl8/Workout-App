@@ -41,6 +41,37 @@ export function unlockAudio() {
   if (audioContext.state === 'suspended') {
     audioContext.resume()
   }
+  // Resuming isn't enough on iOS: it wants a sound actually started from inside the
+  // gesture before it will let later timer-driven ones through. One silent sample
+  // counts, and costs nothing anywhere else.
+  try {
+    const source = audioContext.createBufferSource()
+    source.buffer = audioContext.createBuffer(1, 1, 22050)
+    source.connect(audioContext.destination)
+    source.start(0)
+  } catch {
+    // A context too broken to play silence won't play tones either - nothing to do.
+  }
+}
+
+// Backgrounding the app or the screen locking mid-workout suspends the context, and
+// nothing resumes it on the way back, so every cue after that is lost.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && audioContext?.state === 'suspended') {
+      audioContext.resume().catch(() => {})
+    }
+  })
+}
+
+/** What the audio layer can actually do right now - see the Sound check in the Log tab. */
+export function audioStatus() {
+  return {
+    supported: Boolean(window.AudioContext || window.webkitAudioContext),
+    state: audioContext ? audioContext.state : 'not started',
+    muted,
+    canVibrate: Boolean(navigator.vibrate),
+  }
 }
 
 // Each tone is a short sequence of oscillator segments (frequency/waveform/duration,
@@ -93,9 +124,18 @@ function playSegment(ctx, { freq, duration, type, delay = 0 }) {
  */
 export function playTone(kind) {
   if (muted) return
-  if (audioContext) {
-    if (audioContext.state === 'suspended') audioContext.resume()
-    TONE_DEFS[kind]?.forEach((segment) => playSegment(audioContext, segment))
+  const segments = TONE_DEFS[kind]
+  if (audioContext && segments) {
+    if (audioContext.state === 'running') {
+      segments.forEach((segment) => playSegment(audioContext, segment))
+    } else {
+      // resume() is a promise. Scheduling against a context that hasn't actually
+      // resumed yet drops the tone, so wait for it rather than firing and hoping.
+      audioContext
+        .resume()
+        .then(() => segments.forEach((segment) => playSegment(audioContext, segment)))
+        .catch(() => {})
+    }
   }
   if (navigator.vibrate) {
     navigator.vibrate(VIBRATION_PATTERNS[kind] ?? [100])

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { isMuted, setMuted } from '../../lib/audioCues'
+import { isMuted, playTone, setMuted, unlockAudio } from '../../lib/audioCues'
 
 export default function MuteToggle() {
   const [muted, setMutedState] = useState(() => isMuted())
@@ -8,6 +8,12 @@ export default function MuteToggle() {
     const next = !muted
     setMuted(next)
     setMutedState(next)
+    // Switching sound back on is a real gesture, so it's both the best moment to
+    // unlock audio and the natural place to prove it worked.
+    if (!next) {
+      unlockAudio()
+      playTone('transition')
+    }
   }
 
   return (

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import CategoryBadge from '../components/CategoryBadge'
 import BackupControls from '../components/log/BackupControls'
+import SoundCheck from '../components/log/SoundCheck'
 import LogEntryForm from '../components/log/LogEntryForm'
 import SyncControls from '../components/log/SyncControls'
 import { EXERCISE_CATEGORIES, getLoggedSessions, getWorkoutTemplates } from '../db'
@@ -90,6 +91,8 @@ export default function Log() {
       <SyncControls />
 
       <BackupControls sessionCount={allSessions.length} />
+
+      <SoundCheck />
 
       <div className="grid grid-cols-3 gap-2">
         <StatTile label="This week" value={weekCount} />

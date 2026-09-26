@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { playTone } from '../../lib/audioCues'
+import { playTone, unlockAudio } from '../../lib/audioCues'
 import { SIDE_MODE_LABELS } from '../../lib/categories'
 import { formatMMSS } from '../../lib/formatDuration'
 import { SETS_REPS_PATTERN_LABELS, getRepsSequence } from '../../lib/setsReps'
@@ -207,7 +207,14 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
             </button>
           </>
         ) : (
-          <button type="button" className={`${primaryButtonClass} px-10`} onClick={() => dispatch({ type: 'START' })}>
+          <button
+            type="button"
+            className={`${primaryButtonClass} px-10`}
+            onClick={() => {
+              unlockAudio() // a refresh mid-session reaches here without passing Start Workout
+              dispatch({ type: 'START' })
+            }}
+          >
             Start
           </button>
         )}

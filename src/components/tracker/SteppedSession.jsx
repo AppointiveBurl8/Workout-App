@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { playTone } from '../../lib/audioCues'
+import { playTone, unlockAudio } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import {
   SIDE_LABELS,
@@ -235,7 +235,10 @@ export default function SteppedSession({ steps, session, dispatch }) {
               <button
                 type="button"
                 className={`${primaryButtonClass} px-10`}
-                onClick={() => dispatch({ type: 'START' })}
+                onClick={() => {
+                  unlockAudio() // a refresh mid-session reaches here without passing Start Workout
+                  dispatch({ type: 'START' })
+                }}
               >
                 Start
               </button>

@@ -203,8 +203,40 @@ duration all visible, 0 elapsed - rather than immediately ticking. An explicit t
 on a Start control (shown in place of the Pause/Resume row until then) is required
 before the first timer counts down. This applies to all three modes.
 
+## Audio cues
+
+Cues are Web Audio oscillators from `src/lib/audioCues.js` - no audio files. Phones
+only let a page make sound if a real tap started it, and a workout's cues all fire
+from a timer long afterwards, so the context has to be opened inside a gesture and
+kept alive:
+
+- `unlockAudio()` runs from every tap that can lead to a running timer: Begin on
+  Start Workout, a Library card, the Builder's start, the Tracker's own Start
+  control (the only gesture on a direct `/tracker?templateId=` load or a mid-session
+  refresh), and unmuting. It creates or resumes the context *and* starts one silent
+  sample - iOS wants a sound actually begun inside the gesture, not just a resume.
+- `playTone()` waits for `resume()` to settle before scheduling. Scheduling against
+  a context that hasn't finished resuming drops the tone silently.
+- A `visibilitychange` listener resumes the context on return, since backgrounding
+  the app or the screen locking mid-workout suspends it and nothing else would.
+
+What none of that can reach is sound blocked below the browser. On an iPhone the
+ring/silent switch mutes Web Audio even at full volume. The **Sound check** in the
+Log tab exists to tell those apart in one tap: it unmutes, unlocks, plays the
+round-complete cue, and reports the context's state. "running" with nothing
+audible means the block is outside the app.
+
 ## Known Issues / Changelog
 
+- **Fixed** - audio could stay silent on a phone for three separate reasons, all
+  addressed: nothing unlocked the context on a direct Tracker load or a mid-session
+  refresh; a cue scheduled against a still-resuming context was dropped; and a
+  context suspended by the screen locking was never resumed. See "Audio cues" above.
+- **Added** - a Sound check in the Log tab, since a cue that doesn't play says
+  nothing about why. *Open: an iPhone's ring/silent switch mutes Web Audio
+  regardless of anything the app does. Playing the cues through an `<audio>`
+  element instead may dodge that, but it's unverified - there's no iPhone in the
+  sandbox this was built in, so it isn't claimed as fixed.*
 - **Changed** - a round is now one pass through every exercise on each side, in
   the order left (a b c), right (a b c), next round - see "Rounds are circuits, a
   side at a time" above. Reached in two steps: rounds first stopped being repeats
