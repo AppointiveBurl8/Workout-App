@@ -11,7 +11,7 @@ import {
 import { CATEGORY_LABELS } from '../lib/categories'
 import { resolveSessionConfig } from '../lib/sessionConfig'
 import { inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../lib/ui'
-import ExerciseListItem from './ExerciseListItem'
+import ReorderableExerciseList from './ReorderableExerciseList'
 import ExercisePicker from './ExercisePicker'
 import TimerModeConfigFields, { TimerModePicker } from './TimerModeConfigFields'
 
@@ -123,17 +123,7 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
     )
   }
 
-  const moveExercise = (index, direction) => {
-    const target = index + direction
-    if (target < 0 || target >= draft.exerciseIds.length) return
-    const newIds = [...draft.exerciseIds]
-    ;[newIds[index], newIds[target]] = [newIds[target], newIds[index]]
-    setDraft({ ...draft, exerciseIds: newIds })
-  }
-
-  const removeExercise = (index) => {
-    setDraft({ ...draft, exerciseIds: draft.exerciseIds.filter((_, i) => i !== index) })
-  }
+  const setExerciseIds = (exerciseIds) => setDraft({ ...draft, exerciseIds })
 
   const addExerciseId = (id) => {
     setDraft({ ...draft, exerciseIds: [...draft.exerciseIds, id] })
@@ -250,19 +240,13 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
           <div>
             <label className={labelClass}>Exercises</label>
             {draft.exerciseIds.length > 0 ? (
-              <ol className="mt-2 flex flex-col gap-2">
-                {draft.exerciseIds.map((id, index) => (
-                  <ExerciseListItem
-                    key={`${id}-${index}`}
-                    exercise={exercisesById.get(id)}
-                    index={index}
-                    count={draft.exerciseIds.length}
-                    onMoveUp={() => moveExercise(index, -1)}
-                    onMoveDown={() => moveExercise(index, 1)}
-                    onRemove={() => removeExercise(index)}
-                  />
-                ))}
-              </ol>
+              <div className="mt-2">
+                <ReorderableExerciseList
+                  ids={draft.exerciseIds}
+                  exercisesById={exercisesById}
+                  onChange={setExerciseIds}
+                />
+              </div>
             ) : (
               <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
                 No exercises added yet.

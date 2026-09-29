@@ -203,6 +203,31 @@ duration all visible, 0 elapsed - rather than immediately ticking. An explicit t
 on a Start control (shown in place of the Pause/Resume row until then) is required
 before the first timer counts down. This applies to all three modes.
 
+## Reordering a workout's exercises
+
+The exercise list in the Template Editor and the Builder is the same component,
+`ReorderableExerciseList`, dragged by the handle on each row. It replaced a pair
+of up/down buttons that moved one position per tap - six taps to bring the last
+movement of a seven-exercise workout to the front.
+
+Built on pointer events rather than a drag-and-drop library: HTML5 drag-and-drop
+doesn't fire on touch at all, and the bundle is already heavy enough (see
+`specs/05-cloud-sync.md`). The handle takes pointer capture for the duration, so
+a finger that wanders off the row still steers it, and carries
+`touch-action: none` so the browser doesn't scroll the page instead.
+
+The index arithmetic is pure, in `src/lib/reorder.js`, so it can be reasoned
+about without a pointer: `targetIndexForCenter` answers where a row would land,
+`projectedIndex` where every row ends up if dropped now, and `shiftForIndex`
+turns that into the slide that opens the gap. All three measure against the row
+positions captured when the drag began, so the answer doesn't chase the rows as
+they move out of the way. The position numbers show the projected order during a
+drag, not the stale one.
+
+The handle is also a real button: focused, Up/Down arrows move the row, focus
+follows it, and the move is announced in a live region - which is what the
+up/down buttons were quietly providing before.
+
 ## Audio cues
 
 Cues are Web Audio oscillators from `src/lib/audioCues.js` - no audio files. Phones
@@ -228,6 +253,10 @@ audible means the block is outside the app.
 
 ## Known Issues / Changelog
 
+- **Changed** - exercises in a workout are dragged into order by a handle instead
+  of nudged one position at a time by up/down buttons - see "Reordering a
+  workout's exercises" above. Same component in the Template Editor and the
+  Builder; arrow keys on the focused handle still do it without a pointer.
 - **Fixed** - audio could stay silent on a phone for three separate reasons, all
   addressed: nothing unlocked the context on a direct Tracker load or a mid-session
   refresh; a cue scheduled against a still-resuming context was dropped; and a

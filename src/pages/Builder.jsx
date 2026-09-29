@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ExerciseListItem from '../components/ExerciseListItem'
+import ReorderableExerciseList from '../components/ReorderableExerciseList'
 import ExercisePicker from '../components/ExercisePicker'
 import TemplateEditor from '../components/TemplateEditor'
 import { getExercises } from '../db'
@@ -19,18 +19,6 @@ export default function Builder() {
   const [exerciseIds, setExerciseIds] = useState([])
   const [showSaveForm, setShowSaveForm] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
-
-  const moveExercise = (index, direction) => {
-    const target = index + direction
-    if (target < 0 || target >= exerciseIds.length) return
-    const next = [...exerciseIds]
-    ;[next[index], next[target]] = [next[target], next[index]]
-    setExerciseIds(next)
-  }
-
-  const removeExercise = (index) => {
-    setExerciseIds(exerciseIds.filter((_, i) => i !== index))
-  }
 
   const addExerciseId = (id) => {
     setExerciseIds([...exerciseIds, id])
@@ -59,20 +47,12 @@ export default function Builder() {
           Exercises
         </p>
         {exerciseIds.length > 0 ? (
-          <ol className="flex flex-col gap-2">
-            {exerciseIds.map((id, index) => (
-              <ExerciseListItem
-                key={`${id}-${index}`}
-                exercise={exercisesById.get(id)}
-                index={index}
-                count={exerciseIds.length}
-                onMoveUp={() => moveExercise(index, -1)}
-                onMoveDown={() => moveExercise(index, 1)}
-                onRemove={() => removeExercise(index)}
-                showCategory
-              />
-            ))}
-          </ol>
+          <ReorderableExerciseList
+            ids={exerciseIds}
+            exercisesById={exercisesById}
+            onChange={setExerciseIds}
+            showCategory
+          />
         ) : (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">No exercises added yet.</p>
         )}
