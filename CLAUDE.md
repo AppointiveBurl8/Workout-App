@@ -1,6 +1,6 @@
 # Workout Tracker
 
-**Last updated:** 2026-09-29 · describes commit `5cd7611` (branch HEAD, deployed successfully as Pages run #24).
+**Last updated:** 2026-09-30 · code state describes commit `5cd7611` (deployed as Pages run #24); spec accuracy re-verified at `58cff65` and the fixes that followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
 in code is marked **not verified**.
@@ -284,12 +284,25 @@ The three sharing a name is a readability trap for anyone new to the code.
 
 ### Spec vs. code discrepancies
 
-| Where | Spec says | Code does |
-|---|---|---|
-| `specs/01-data-model.md:51` | Interval `unilateral` "inserts a side step (Left, then Right) **within each round**" | Side is a session-level pass; no side step inside a round, and no `side_switch` phase exists |
-| `specs/01-data-model.md:69` | Pails/Rails: "**Every round runs Left, then Right**" | Each round runs the *whole exercise list* left, then the whole list right |
-| `specs/04-tracker.md:171` | "Between exercises … an 'Up Next' countdown screen shows" (unqualified) | Interval same-side handovers show none — correctly stated in the same file's Interval section, so the file contradicts itself |
-| `specs/04-tracker.md:167` | Stepping resets the machine to "first phase, **round 1**, full duration" | Round is no longer in the phase machine; stepping sets it from the session position |
+**None known as of `2026-09-30`.** Seven were found and fixed across two commits
+— four from the side/round rework (`b5dab80`, `b17d84f`, `767b106`) leaving stale
+prose in both specs, and three in `specs/01-data-model.md` §Settings (a mute flag
+documented in the wrong storage, a missing `lastExportedAt` key, and the
+undocumented `shape`-mismatch discard). Each spec's Changelog section records
+what was corrected and why.
+
+What was re-checked against `src/` when closing this out, all matching: the three
+mode-config defaults and every `SIDE_MODES`/`TIMER_MODES`/category constant;
+`defaultSetsRepsScheme()` and `PYRAMID_STEP`; the `LoggedSession` fields
+`addLoggedSession` actually writes; `SWITCH_SECONDS`/`TRANSITION_SECONDS`/
+`LEAD_IN_SECONDS`; the Pails/Rails phase order and every phase color; both
+duration formulas; all six `unlockAudio()` call sites; and for cloud sync the
+debounce, payload warn threshold, Firestore document fields, settings key names
+and `firestore.rules`.
+
+Absence of *known* discrepancies is not proof of none — this was a claim-by-claim
+read, not a test suite. Re-run the sweep after any behavior change, per the
+`/specs` search rule in §11.
 
 ## 8. Needs on-device testing (iPhone)
 
@@ -378,7 +391,7 @@ src/
     ui.js                      Shared button/input class strings
     useInterval.js             Interval hook
 specs/
-  01-data-model.md             Schema + migrations (two stale claims — see §7)
+  01-data-model.md             Schema + migrations + settings keys; Changelog for doc corrections
   04-tracker.md                Timer modes, circuit/side rules, audio, changelog
   05-cloud-sync.md             Sync design, reconcile table, known issues
 firestore.rules                users/{uid} readable/writable only by that uid

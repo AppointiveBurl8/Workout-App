@@ -144,15 +144,38 @@ reconciled to the current `sets` count. `top_back_off`/`ramp` don't use
 
 ## Settings
 
-Generic key/value table (`db.settings`, keyed by `key`). Used for the audio-cue
-mute flag and, as of the active-session persistence work in `specs/04-tracker.md`,
-for mirroring the in-progress Tracker session (key `activeSession`) so a hard app
-close/reload doesn't lose it.
+Generic key/value table (`db.settings`, keyed by `key`). Every key written:
 
-Cloud sync adds `cloudSyncedVersion`, `cloudLocalRevision`,
-`cloudSyncedLocalRevision`, and `cloudDeviceLabel` - see `specs/05-cloud-sync.md`.
-These are per-device bookkeeping and are deliberately *not* part of the synced
-payload, since each device tracks its own position independently.
+| Key | Written by | Notes |
+|---|---|---|
+| `activeSession` | `src/lib/activeSessionStore.jsx` | The in-progress Tracker session, mirrored every 3s - see below |
+| `lastExportedAt` | `src/components/log/BackupControls.jsx` | ISO timestamp of the last backup export; drives the "it's been a while" reminder |
+| `cloudSyncedVersion` | `src/lib/cloudSync.js` | see `specs/05-cloud-sync.md` |
+| `cloudLocalRevision` | `src/lib/cloudSync.js` | " |
+| `cloudSyncedLocalRevision` | `src/lib/cloudSync.js` | " |
+| `cloudDeviceLabel` | `src/lib/cloudSync.js` | " |
+
+The four cloud keys are per-device bookkeeping and are deliberately *not* part of
+the synced payload, since each device tracks its own position independently.
+
+**The audio mute flag is not here.** It lives in `localStorage` under
+`workout-tracker:audio-muted` (`src/lib/audioCues.js`), so unlike everything in
+this table it is per-browser and is carried by neither the backup export nor
+cloud sync. Clearing site data loses it; so does switching browsers.
+
+### The `activeSession` blob
+
+Mirrored every 3s while a session is running (and cleared the moment one ends) so
+a hard close or reload doesn't lose an in-progress workout - see
+`specs/04-tracker.md`.
+
+It carries a `shape` field holding `SESSION_SHAPE` from
+`src/lib/activeSessionStore.jsx`. On hydrate, a stored session whose `shape`
+doesn't match the running build's is **discarded outright** rather than
+half-restored. That is deliberate - a session written against a different state
+layout would render wrong - but the consequence is real: **a workout in progress
+across a deploy that changed the shape is lost.** Bump `SESSION_SHAPE` whenever
+the session object's layout changes, and expect that cost.
 
 ## Migration history
 
@@ -166,9 +189,11 @@ payload, since each device tracks its own position independently.
   behavior for existing templates). Replaced `pailsRailsConfig.side`
   (`'bilateral'|'left_right'`) with a constant `pailsRailsConfig.sideMode:
   'unilateral'` - the field is dropped and re-added on migration, since the old
-  `'bilateral'` option no longer has a runtime meaning for this mode (every
-  Pails/Rails round is now unconditionally Left-then-Right). No `LoggedSession`
-  migration was needed - logged sessions don't reference `side`/`sideMode`.
+  `'bilateral'` option no longer had a runtime meaning for this mode. The rule
+  *at v4* was that every Pails/Rails round ran Left-then-Right within the
+  exercise; that is no longer how sides work - see §PailsRailsConfig above for
+  the current behavior. No `LoggedSession` migration was needed - logged sessions
+  don't reference `side`/`sideMode`.
 - **v5**: removed `Exercise.repsLabel` (free-text, per-exercise). Added
   `WorkoutTemplate.setsReps`, one `SetsRepsScheme` per `exerciseIds` position -
   reps moves from a per-exercise label to a per-workout, per-slot structured
@@ -198,3 +223,19 @@ to *this document* where it had drifted from the code.
   sections now state the current nesting. No schema change was involved in any of
   the three - `intervalConfig.sideMode` and `pailsRailsConfig.sideMode` hold the
   same values they did at v4; only what the Tracker does with them changed.
+- **Corrected** - §Settings claimed the audio-cue mute flag was stored in
+  `db.settings`. It never was: it lives in `localStorage` under
+  `workout-tracker:audio-muted`. Grepping every `setSetting()` call in `src/`
+  returns `activeSession`, `lastExportedAt` and the four cloud keys, and no mute
+  key. The distinction matters - a `localStorage` flag is per-browser and rides
+  along with neither the backup export nor cloud sync.
+- **Corrected** - §Settings listed no key for `lastExportedAt`, which
+  `BackupControls.jsx` has written since `b3265f2`. The section is now an
+  exhaustive table of every key with the file that writes it, so the next missing
+  key is visible rather than merely absent.
+- **Added** - §Settings now documents the `shape` field on the `activeSession`
+  blob and what a mismatch costs. `SESSION_SHAPE` was introduced at `2` by
+  `b5dab80` (when the side moved onto the session) and bumped to `3` by `b17d84f`
+  (when the round followed it); `767b106` reshuffled the nesting without changing
+  the layout, so it left the value alone. Both of those events silently discarded
+  any workout in progress across the deploy, and nothing in the specs said so.
