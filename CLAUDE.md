@@ -1,7 +1,7 @@
 # Workout Tracker
 
-**Last updated:** 2026-09-30 · code state describes this branch through the
-wall-clock timing commit; spec accuracy re-verified at `58cff65` and the fixes that
+**Last updated:** 2026-09-30 · code state describes this branch through the PWA
+commit; spec accuracy re-verified at `58cff65` and the fixes that
 followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
@@ -22,10 +22,14 @@ timer), **Log** (history + stats).
 | Live URL | https://appointiveburl8.github.io/Workout-App/ |
 | Lint | oxlint (`npx oxlint src`) |
 
-**Not a real PWA.** No `manifest.json`, no service worker — verified absent from
-`index.html` and `public/`. It is a normal web page that happens to be
-mobile-styled and offline-capable via IndexedDB. "Add to Home Screen" works but
-there is no install manifest, offline shell, or app icon set.
+**Installable PWA** as of the PWA commit: `public/manifest.webmanifest`,
+generated icons in `public/icons/`, and a hand-written `public/sw.js` (no
+`vite-plugin-pwa`) registered from `main.jsx` in production builds only. The app
+shell is cached, so it launches offline; `navigator.storage.persist()` asks the
+browser not to evict IndexedDB. See `specs/06-pwa.md`. **Unverified on a real
+iPhone** — including whether an installed home-screen app gets its own storage
+separate from Safari's, which would make the installed app start with an empty
+history. Export a backup or sync before installing.
 
 ## 2. Branch & deploy status
 
@@ -144,6 +148,9 @@ workout, never per exercise.
 | Audio cues + mute toggle | Done, unverified on iPhone | `src/lib/audioCues.js`, `tracker/MuteToggle.jsx` |
 | Sound check diagnostic | Done | `src/components/log/SoundCheck.jsx` |
 | Bottom nav (4 rounded cards, filled active, safe-area) | Done | `src/components/BottomNav.jsx` |
+| PWA install manifest + icons | Done, unverified on iPhone | `public/manifest.webmanifest`, `public/icons/`, `scripts/make-icons.mjs` |
+| Offline app shell (service worker) | Done | `public/sw.js`, registered in `src/main.jsx` |
+| Persistent-storage request | Done | `src/main.jsx` (`navigator.storage.persist()`) |
 | Screen wake lock | Done, unverified on iPhone | `src/lib/useWakeLock.js`, held by `activeSessionStore.jsx` |
 | Edit / delete a logged session | **Not started** (UI) | db helpers exist, unused — see §7 |
 | Rest-day logging | **Not started** | — |
@@ -334,6 +341,8 @@ in the build sandbox. All four are code-complete but unproven.
 |---|---|---|
 | Audio unlock + playback | **Untested on device.** Verified only in headless Chromium under `--autoplay-policy=document-user-activation-required` | Does the Log tab's **Sound check** report `running`, and do you *hear* the beep? Running + silent ⇒ the ring/silent switch is muting Web Audio, which no app code can override |
 | Wake lock | **Untested on device.** Verified in headless Chromium against a stubbed `navigator.wakeLock`, since the real one refuses there | Start a workout, leave the phone alone for 2 minutes: the screen stays on and the header shows "Screen on" |
+| Install to home screen | **Untested.** Manifest, icons and SW verified in Chromium against `vite preview` | Delete the old icon, re-add from Safari's Share sheet. New kettlebell icon, opens without Safari chrome. **Export a backup or sync first** — an installed app may get storage separate from Safari's |
+| Offline launch | **Untested on device.** Verified in Chromium with the network cut | Airplane mode, force-quit, reopen: the app loads and history is intact |
 | PWA safe-area | **Untested.** `env(safe-area-inset-bottom)` is set on the bottom nav and `viewport-fit=cover` in `index.html` | Bottom nav clearing the home indicator on a notched iPhone |
 | Backgrounding | **Untested on device.** Wall-clock ticker verified in Chromium under Playwright's clock API | Lock the phone mid-Interval for 60s and unlock: phase and elapsed should have moved ~60s. Cues that fell during the lock are gone for good — iOS suspends audio too |
 | Google sign-in popup | **Untested.** Sandbox blocks `apis.google.com` | Sign-in completing on Safari; `appointiveburl8.github.io` must be in Firebase's Authorized domains |
@@ -412,10 +421,18 @@ src/
     ui.js                      Shared button/input class strings
     useWallClockTicker.js      The one timer that advances session state
     useWakeLock.js             Screen wake lock held for the life of a session
+public/
+  manifest.webmanifest         Install manifest (relative start_url/scope)
+  sw.js                        Offline shell: network-first pages, cache-first assets
+  icons/icon.svg               Icon source; the PNGs beside it are generated + committed
+  404.html                     GitHub Pages deep-link redirect (predates the SW)
+scripts/
+  make-icons.mjs               Renders icon.svg to the PNG sizes; run by hand, not in the build
 specs/
   01-data-model.md             Schema + migrations + settings keys; Changelog for doc corrections
-  04-tracker.md                Timer modes, circuit/side rules, audio, changelog
+  04-tracker.md                Timer modes, circuit/side rules, audio, wake lock, wall-clock timing
   05-cloud-sync.md             Sync design, reconcile table, known issues
+  06-pwa.md                    Manifest, icons, caching strategy, iOS caveats
 firestore.rules                users/{uid} readable/writable only by that uid
 firebase.json                  Emulator ports + rules path
 .github/workflows/deploy.yml   Build + deploy to Pages
@@ -455,3 +472,9 @@ firebase.json                  Emulator ports + rules path
   with the `Co-Authored-By:` and `Claude-Session:` trailers.
 - **Bump `SESSION_SHAPE`** in `activeSessionStore.jsx` whenever the active-session
   object changes shape, or an in-flight workout will half-restore across a deploy.
+- **Bump `CACHE` in `public/sw.js`** only when the `SHELL` list changes. Ordinary
+  code changes don't need it — hashed asset names self-invalidate and
+  `index.html` is network-first.
+- **Icons are generated, not hand-drawn.** Edit `public/icons/icon.svg`, run
+  `node scripts/make-icons.mjs`, commit the PNGs. The build must never depend on
+  `sharp`.
