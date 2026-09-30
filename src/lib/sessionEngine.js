@@ -3,6 +3,11 @@
  * Pails/Rails). Lives outside React so it can be driven by the app-level
  * activeSessionStore reducer instead of a per-component useReducer, which is what
  * lets a session survive navigating away from the Tracker tab and back.
+ *
+ * A session is a flat list of **steps** - the smallest timed units it contains -
+ * built once by `buildStepSequence`. Round, pass, side, exercise, phase, colour
+ * and the timer all derive from the step at the current index, so there is one
+ * place that decides what comes next and nothing to keep in sync.
  */
 
 /** Brief transitional cues: not part of the "active" configured durations, so
@@ -11,19 +16,14 @@ export const SWITCH_SECONDS = 3 // Pails/Rails: PAILS hold -> RAILS hold directi
 export const TRANSITION_SECONDS = 10 // "Up Next" countdown between exercises
 export const LEAD_IN_SECONDS = 10 // Get-into-position countdown before the first phase
 
-// ---------------- Interval ----------------
+/**
+ * How far into a step Previous stops meaning "back one" and starts meaning
+ * "restart this one". Past this you almost certainly want the step you're in
+ * again, not the one before it.
+ */
+export const PREV_RESTART_THRESHOLD_MS = 3000
 
-export function initIntervalStepState(config) {
-  return { phase: 'work', remainingSeconds: config.workSeconds, done: false }
-}
-
-function advanceIntervalPhase(state, config) {
-  if (state.phase === 'work') {
-    return { ...state, phase: 'rest', remainingSeconds: config.restSeconds }
-  }
-  // phase === 'rest' - one exercise's turn is over; the session decides what's next
-  return { ...state, done: true, remainingSeconds: 0 }
-}
+// ---------------- Phases ----------------
 
 export const INTERVAL_PHASE_LABELS = {
   work: 'Work',
@@ -33,36 +33,6 @@ export const INTERVAL_PHASE_LABELS = {
 export const INTERVAL_PHASE_COLORS = {
   work: { label: 'text-indigo-600 dark:text-indigo-400', bar: 'bg-indigo-600' },
   rest: { label: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-600' },
-}
-
-const INTERVAL_PHASE_CONFIG_FIELD = { work: 'workSeconds', rest: 'restSeconds' }
-
-function intervalPhaseTotal(state, config) {
-  return config[INTERVAL_PHASE_CONFIG_FIELD[state.phase]]
-}
-
-// ---------------- Pails/Rails ----------------
-
-export function initPailsRailsStepState(config) {
-  return { phase: 'stretch', remainingSeconds: config.holdSeconds, done: false }
-}
-
-function advancePailsRailsPhase(state, config) {
-  const { rampSeconds, pailsHoldSeconds, railsHoldSeconds } = config
-  switch (state.phase) {
-    case 'stretch':
-      return { ...state, phase: 'ramp', remainingSeconds: rampSeconds }
-    case 'ramp':
-      return { ...state, phase: 'pails', remainingSeconds: pailsHoldSeconds }
-    case 'pails':
-      return { ...state, phase: 'switch', remainingSeconds: SWITCH_SECONDS }
-    case 'switch':
-      return { ...state, phase: 'rails', remainingSeconds: railsHoldSeconds }
-    case 'rails':
-      return { ...state, done: true, remainingSeconds: 0 }
-    default:
-      return state
-  }
 }
 
 export const PAILS_RAILS_PHASE_LABELS = {
@@ -82,103 +52,43 @@ export const PAILS_RAILS_PHASE_COLORS = {
   rails: { label: 'text-red-600 dark:text-red-400', bar: 'bg-red-600' },
 }
 
-const PAILS_RAILS_PHASE_CONFIG_FIELD = {
-  stretch: 'holdSeconds',
-  ramp: 'rampSeconds',
-  pails: 'pailsHoldSeconds',
-  rails: 'railsHoldSeconds',
+/** The phases one exercise runs through, in order, per mode. */
+export const PHASE_SEQUENCE = {
+  interval: ['work', 'rest'],
+  pails_rails: ['stretch', 'ramp', 'pails', 'switch', 'rails'],
 }
 
-function pailsRailsPhaseTotal(state, config) {
-  if (state.phase === 'switch') return SWITCH_SECONDS
-  return config[PAILS_RAILS_PHASE_CONFIG_FIELD[state.phase]]
-}
-
-// ---------------- Shared dispatch by timer mode ----------------
-
-const ENGINES = {
-  interval: {
-    init: initIntervalStepState,
-    advance: advanceIntervalPhase,
-    phaseTotal: intervalPhaseTotal,
-    phaseConfigField: INTERVAL_PHASE_CONFIG_FIELD,
-    labels: INTERVAL_PHASE_LABELS,
-    colors: INTERVAL_PHASE_COLORS,
-  },
+/** Which config duration each phase counts down. `switch` is a fixed cue, not configurable. */
+const PHASE_CONFIG_FIELD = {
+  interval: { work: 'workSeconds', rest: 'restSeconds' },
   pails_rails: {
-    init: initPailsRailsStepState,
-    advance: advancePailsRailsPhase,
-    phaseTotal: pailsRailsPhaseTotal,
-    phaseConfigField: PAILS_RAILS_PHASE_CONFIG_FIELD,
-    labels: PAILS_RAILS_PHASE_LABELS,
-    colors: PAILS_RAILS_PHASE_COLORS,
+    stretch: 'holdSeconds',
+    ramp: 'rampSeconds',
+    pails: 'pailsHoldSeconds',
+    rails: 'railsHoldSeconds',
   },
-}
-
-export function getStepEngine(timerMode) {
-  return ENGINES[timerMode]
-}
-
-export function initStepState(timerMode, config) {
-  return ENGINES[timerMode].init(config)
-}
-
-/** One second of real time passing. No-op once the step is done. */
-export function tickStepState(timerMode, state, config) {
-  if (state.done) return state
-  const remainingSeconds = state.remainingSeconds - 1
-  if (remainingSeconds > 0) return { ...state, remainingSeconds }
-  return ENGINES[timerMode].advance(state, config)
-}
-
-/** Jumps straight to the next phase, as if the current one's timer had hit zero. */
-export function skipStepState(timerMode, state, config) {
-  if (state.done) return state
-  return ENGINES[timerMode].advance(state, config)
-}
-
-export function stepPhaseTotal(timerMode, state, config) {
-  return ENGINES[timerMode].phaseTotal(state, config)
-}
-
-/** Which config duration the current phase is counting down, or undefined for a fixed cue. */
-export function stepPhaseConfigField(timerMode, phase) {
-  return ENGINES[timerMode].phaseConfigField[phase]
 }
 
 export function stepPhaseLabel(timerMode, phase) {
-  return ENGINES[timerMode].labels[phase]
+  return timerMode === 'interval' ? INTERVAL_PHASE_LABELS[phase] : PAILS_RAILS_PHASE_LABELS[phase]
 }
 
 export function stepPhaseColors(timerMode, phase) {
-  return ENGINES[timerMode].colors[phase]
+  return timerMode === 'interval' ? INTERVAL_PHASE_COLORS[phase] : PAILS_RAILS_PHASE_COLORS[phase]
 }
 
-// ---------------- Session position: which exercise, which side ----------------
+// ---------------- Passes: which side runs which exercises ----------------
 
 /**
- * A session is a circuit: a round is one pass through every exercise, so an
- * exercise's phase machine runs exactly one turn's worth of work and the session
- * decides what comes next. Both the round and the side therefore live on the
- * session, not inside any movement's machine.
+ * A session is a circuit, nested round -> pass -> exercise. A round is one pass
+ * through the exercise list per side, so:
  *
- * The nesting is round -> pass -> exercise. On a unilateral workout a round
- * covers both sides:
- *
- *   Round 1:  left (a b c), right (a b c)
- *   Round 2:  left (a b c), right (a b c)
+ *   Round 1:  left (a b c) -> Switch Sides -> right (a b c)
  *
  * ...except that not every movement has two sides. An exercise with
- * `sided: false` is symmetrical - a forward fold, a cat-cow - and running it
- * twice is just doing it twice. Those run **once, in the left pass, at their
- * list position**, and are skipped by the right pass. With a middle exercise
- * unsided that reads:
- *
- *   Round 1:  left (a b c), right (a c)
- *
- * If nothing in the workout is sided there is one pass and no side labels at
- * all. A bilateral Interval workout ignores the flag entirely - everything runs
- * once either way.
+ * `sided: false` is symmetrical and runs **once**, in the left pass, at its list
+ * position; the right pass skips it. If nothing is sided there is one unlabelled
+ * pass. A bilateral Interval workout ignores the flag entirely.
  */
 export function isUnilateral(timerMode, config) {
   if (timerMode === 'pails_rails') return true
@@ -220,45 +130,7 @@ export function totalSessionSteps(passes, rounds) {
   return passes.reduce((n, pass) => n + pass.indices.length, 0) * rounds
 }
 
-export function initSessionPosition() {
-  return { round: 1, passIndex: 0, indexInPass: 0 }
-}
-
-/** Turns a position into the concrete exercise, pass and side label it means. */
-export function resolvePosition(exercises, passes, position) {
-  const pass = passes[position.passIndex]
-  const exerciseIndex = pass?.indices[position.indexInPass]
-  const exercise = exercises[exerciseIndex]
-  return { exerciseIndex, exercise, pass, side: sideLabelFor(exercise, pass) }
-}
-
-/** Where the session goes once the current exercise's phase machine finishes. */
-export function advanceSessionPosition({ round, passIndex, indexInPass, passes, rounds }) {
-  if (indexInPass < passes[passIndex].indices.length - 1) {
-    return { round, passIndex, indexInPass: indexInPass + 1, done: false }
-  }
-  if (passIndex < passes.length - 1) {
-    return { round, passIndex: passIndex + 1, indexInPass: 0, done: false }
-  }
-  if (round < rounds) {
-    return { round: round + 1, passIndex: 0, indexInPass: 0, done: false }
-  }
-  return { round, passIndex, indexInPass, done: true }
-}
-
-/** The mirror, for Previous. Null once there's nothing before the current spot. */
-export function retreatSessionPosition({ round, passIndex, indexInPass, passes }) {
-  if (indexInPass > 0) return { round, passIndex, indexInPass: indexInPass - 1 }
-  if (passIndex > 0) {
-    const previous = passIndex - 1
-    return { round, passIndex: previous, indexInPass: passes[previous].indices.length - 1 }
-  }
-  if (round > 1) {
-    const last = passes.length - 1
-    return { round: round - 1, passIndex: last, indexInPass: passes[last].indices.length - 1 }
-  }
-  return null
-}
+export const SIDE_LABELS = { left: 'Left side', right: 'Right side' }
 
 /**
  * Whether a handover needs its own countdown screen. Interval ends every exercise
@@ -272,13 +144,82 @@ export function needsTransitionCountdown(timerMode, fromPassIndex, toPassIndex) 
   return timerMode !== 'interval'
 }
 
-export const SIDE_LABELS = { left: 'Left side', right: 'Right side' }
+// ---------------- The step sequence ----------------
 
-// ---------------- Total duration estimate (item 5) ----------------
+/**
+ * Every timed unit the session will run, in order. A step is either:
+ *
+ * - `kind: 'phase'`   one phase of one exercise (Work, Rest; Stretch Hold, Ramp,
+ *                     PAILs, Switch, RAILs), or
+ * - `kind: 'transition'`  the "Up Next" / "Switch Sides" countdown that precedes
+ *                     the exercise it introduces, where one is needed.
+ *
+ * A transition carries the position of the exercise it leads into, so the screen
+ * can name what's coming without looking ahead.
+ *
+ * Structure only - durations are read from the live config at display time, so
+ * retuning a chip mid-session doesn't invalidate the list. Only `rounds` changes
+ * its length, and because it's round-major, growing rounds only appends.
+ */
+export function buildStepSequence(exercises, timerMode, config) {
+  const phases = PHASE_SEQUENCE[timerMode]
+  if (!phases) return []
+  const passes = buildPasses(exercises, sessionSideMode(timerMode, config))
+  const steps = []
+  let previousPassIndex = null
+
+  for (let round = 1; round <= config.rounds; round++) {
+    passes.forEach((pass, passIndex) => {
+      pass.indices.forEach((exerciseIndex, indexInPass) => {
+        const at = {
+          round,
+          passIndex,
+          indexInPass,
+          exerciseIndex,
+          side: sideLabelFor(exercises[exerciseIndex], pass),
+        }
+        // Nothing to transition from on the very first step of the session.
+        if (steps.length > 0 && needsTransitionCountdown(timerMode, previousPassIndex, passIndex)) {
+          steps.push({ ...at, kind: 'transition', phase: null })
+        }
+        for (const phase of phases) steps.push({ ...at, kind: 'phase', phase })
+        previousPassIndex = passIndex
+      })
+    })
+  }
+  return steps
+}
+
+/** How long a step runs. Transitions and the Pails/Rails switch cue are fixed. */
+export function stepDurationSeconds(step, timerMode, modeConfig) {
+  if (!step) return 0
+  if (step.kind === 'transition') return TRANSITION_SECONDS
+  if (step.phase === 'switch') return SWITCH_SECONDS
+  return modeConfig[PHASE_CONFIG_FIELD[timerMode][step.phase]]
+}
+
+/**
+ * A transition is dead time between movements - the same as the lead-in - so it
+ * isn't billed as workout time, and the logged duration counts only the phases
+ * actually worked.
+ */
+export function stepCountsAsWorkoutTime(step) {
+  return step?.kind === 'phase'
+}
+
+/**
+ * Whether Previous should restart the current step rather than step back. Past
+ * a few seconds in, you meant "give me that one again".
+ */
+export function shouldRestartStep(stepElapsedSeconds) {
+  return stepElapsedSeconds * 1000 > PREV_RESTART_THRESHOLD_MS
+}
+
+// ---------------- Total duration estimate ----------------
 
 /**
  * Estimated total session length, recalculated live as chips change. Only sums the
- * user-configurable phase durations - the brief fixed switch/side-switch cues are
+ * user-configurable phase durations - the brief fixed switch/transition cues are
  * left out, same as they're excluded from the in-session phase-total progress bar.
  *
  * Counts the steps the session will actually generate, via `buildPasses`, rather
@@ -296,7 +237,7 @@ export function computeStepSessionDurationSeconds(timerMode, config, exercises) 
   return (holdSeconds + rampSeconds + pailsHoldSeconds + railsHoldSeconds) * steps
 }
 
-// ---------------- Open Work (unchanged machine, just relocated) ----------------
+// ---------------- Open Work ----------------
 
 export function initOpenWorkState() {
   return {
@@ -328,4 +269,33 @@ export function tickOpenWorkState(state, config) {
 export function endOpenWorkSet(state, restSeconds) {
   if (state.phase !== 'work') return state
   return { ...state, phase: 'rest', restRemainingSeconds: restSeconds, setsCompleted: state.setsCompleted + 1 }
+}
+
+/** Rest over (or skipped): straight back into the next set. */
+export function resumeOpenWorkSet(state) {
+  if (state.phase !== 'work') {
+    return { ...state, phase: 'work', workElapsedSeconds: 0, restRemainingSeconds: 0 }
+  }
+  return { ...state, workElapsedSeconds: 0 }
+}
+
+/**
+ * Previous, in Open Work. A work block counts up with no set length, so there is
+ * no earlier step to return to that would mean anything - Previous restarts it.
+ * During rest it restarts the rest, or, if the rest only just began, drops back
+ * into the set and un-counts it: that's the "tapped End Set by mistake" case.
+ */
+export function retreatOpenWorkState(state, restSeconds) {
+  if (state.phase !== 'rest') return { ...state, workElapsedSeconds: 0 }
+  const restElapsed = restSeconds - state.restRemainingSeconds
+  if (shouldRestartStep(restElapsed)) {
+    return { ...state, restRemainingSeconds: restSeconds }
+  }
+  return {
+    ...state,
+    phase: 'work',
+    workElapsedSeconds: 0,
+    restRemainingSeconds: 0,
+    setsCompleted: Math.max(0, state.setsCompleted - 1),
+  }
 }

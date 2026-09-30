@@ -1,5 +1,3 @@
-import { useEffect, useRef } from 'react'
-
 const MUTE_STORAGE_KEY = 'workout-tracker:audio-muted'
 
 let audioContext = null
@@ -140,26 +138,4 @@ export function playTone(kind) {
   if (navigator.vibrate) {
     navigator.vibrate(VIBRATION_PATTERNS[kind] ?? [100])
   }
-}
-
-/**
- * Fires 'roundComplete' when a round/set just finished - `round` ticked up, or `done`
- * flipped true on the last round - and 'transition' for any other phase change.
- * Shared by Interval and Pails/Rails steps, whose reducers both signal round
- * completion the same way.
- */
-export function usePhaseTransitionCues(phase, round, done) {
-  const prevRef = useRef({ phase, round, done })
-
-  useEffect(() => {
-    const prev = prevRef.current
-    if (done && !prev.done) {
-      playTone('roundComplete')
-    } else if (round !== prev.round) {
-      playTone('roundComplete')
-    } else if (phase !== prev.phase) {
-      playTone('transition')
-    }
-    prevRef.current = { phase, round, done }
-  }, [phase, round, done])
 }

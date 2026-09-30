@@ -1,7 +1,7 @@
 # Workout Tracker
 
 **Last updated:** 2026-09-30 · code state describes this branch through the
-per-exercise `sided` commit; spec accuracy re-verified at `58cff65` and the fixes that
+Skip-removal commit; spec accuracy re-verified at `58cff65` and the fixes that
 followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
@@ -154,7 +154,7 @@ that on both external entry points, backup import and cloud pull, via
 | Tracker — Open Work | Done | `src/components/tracker/OpenWorkSession.jsx` |
 | Tracker — Interval | Done | `src/components/tracker/IntervalStep.jsx` + `SteppedSession.jsx` |
 | Tracker — Pails/Rails | Done | `src/components/tracker/PailsRailsStep.jsx` + `SteppedSession.jsx` |
-| Phase machines (pure) | Done | `src/lib/sessionEngine.js` |
+| Step sequence + Next/Previous navigation | Done | `sessionEngine.js` (`buildStepSequence`), `goToStep()` in `activeSessionStore.jsx` |
 | Per-exercise sided flag (symmetrical movements run once) | Done | `sessionEngine.js` (`buildPasses`), `ExerciseForm.jsx` |
 | Wall-clock timing (backgrounded time recovered) | Done, unverified on iPhone | `src/lib/useWallClockTicker.js`, `TICK_N` in `activeSessionStore.jsx` |
 | Session state survives tab switch + reload | Done | `src/lib/activeSessionStore.jsx` |
@@ -203,11 +203,11 @@ Kept as stated unless the code contradicts them. Two do.
 - **Pails/Rails sequence:** stretch hold → ramp → PAILs → switch cue → RAILs. ✅
   Colors: hold **yellow**, PAILs **green**, RAILs **red**, ramp/switch **neutral
   gray**. ✅ Interval adds work=indigo, rest=emerald.
-- ⚠️ **"Transport controls (pause/resume, prev/next) at bottom in all modes" —
-  code differs.** Open Work has Pause/Resume and "End Set / Start Rest" only; it
-  has no exercise sequence to step through, and the reducer explicitly rejects
-  `NEXT`/`PREV`/`SKIP_PHASE` for `open_work`. Interval and Pails/Rails have the
-  full Prev / Pause / Skip / Next row.
+- **Transport controls (Previous / Pause-Resume / Next) at the bottom in all
+  modes.** ✅ as of the Skip-removal commit — including Open Work, whose steps are
+  its work blocks and rests. **There is no Skip**: it overlapped with Next and
+  everything it did, Next does. Open Work keeps "End Set / Start Rest" as well,
+  because it names what it counts and Next doesn't.
 - **Bottom nav:** four distinct rounded cards (`rounded-2xl`), filled active state
   (`bg-indigo-600 text-white`), safe-area aware
   (`env(safe-area-inset-bottom)`). ✅
@@ -259,34 +259,34 @@ session · `de04778` wall-clock timing so backgrounded time is recovered
 
 **Log & sides (09-30)** — `adf0a15` add/edit/delete log entries + rest days
 (db v7) and the first tests in the repo · `17a6f3a` per-exercise `sided` flag,
-session position reworked to `(round, passIndex, indexInPass)` (db v8).
+session position reworked to `(round, passIndex, indexInPass)` (db v8) ·
+`c977293` `npm test` gating the deploy.
+
+**Transport (09-30)** — Skip removed; a session became a flat list of steps and
+Next/Previous the only navigation, in all three modes.
 
 ## 7. Known bugs & gaps
 
 Answers to the six explicit checks, each verified in code:
 
-**Q: Does manual skip next/prev update round and phase state in all three modes?**
-**Interval + Pails/Rails: yes.** `NEXT`/`PREV` go through `atPosition()`, which
-sets `round`, `passIndex` *and* `indexInPass` together and rebuilds `stepState`
-from scratch. The side isn't stored at all any more — it's derived from the pass
-and the exercise's `sided` flag, so it cannot disagree with the position. `SKIP_PHASE` advances the phase machine and, when that finishes the
-exercise, hands to `afterExercise()` which advances the same position. Round is
-correct **by construction** since it moved to session level — it is no longer
-possible for the phase machine and the round counter to disagree.
-**Open Work: N/A** — the reducer rejects all three actions for `open_work`; there
-is no sequence to step.
-*Caveat:* there is no dedicated "round-sync fix" commit. `1f7870b` explicitly
-records that the reported round-sync bug **could not be reproduced**; the class of
-bug was later designed out by `b17d84f`/`767b106`.
-*Latent:* `SKIP_PHASE` guards `state.transitioning` but **not** `state.leadIn`.
-Unreachable today (the lead-in screen replaces the transport row), but it would
-corrupt the first phase if that UI ever changed.
+**Q: Does Next/Previous update round and phase state in all three modes?**
+**Yes, by construction.** A session is a flat list of steps built by
+`buildStepSequence()`, and the round, pass, side, exercise and phase are all
+*fields on the step* — nothing is derived separately, so nothing can disagree.
+Next, Previous and a timer running out all go through the single `goToStep()`,
+which only moves an index. Open Work has no step list (a work block counts up
+with no set length), so its two phases are its steps and Next/Previous move
+between them.
+*Caveat:* there is no dedicated "round-sync fix" commit to point at. `1f7870b`
+explicitly records that the reported round-sync bug **could not be reproduced**;
+the class of bug was designed out by `b17d84f`/`767b106` and then designed out
+again, more thoroughly, by the step list.
 
 **Q: Does Tracker state survive backgrounding, tab switching, or a page reload?**
 **Yes, all three.** `ActiveSessionProvider` is mounted above the router in
 `App.jsx`, so switching tabs never unmounts it. State is mirrored to
 `db.settings['activeSession']` every 3s and rehydrated on app start.
-*Caveat:* the mirror carries a `SESSION_SHAPE` version (currently `4`); a session
+*Caveat:* the mirror carries a `SESSION_SHAPE` version (currently `5`); a session
 stored by a build with a different shape is **discarded** on hydrate rather than
 half-restored. So a workout in progress across a deploy is lost by design.
 *Caveat:* up to 3s of progress can be lost on a hard kill (the persist interval).
@@ -425,6 +425,9 @@ in the build sandbox. All four are code-complete but unproven.
   prompt. Also undecided whether a very old mirrored session should expire.
 - **Interval handover countdown** — dropped for same-side handovers (§5). Flagged
   to the owner for confirmation; no response yet.
+- **Open Work's "End Set / Start Rest"** — kept alongside Next, which does the
+  same thing during a set. Next doesn't say what it counts and that button does.
+  Flagged in `specs/04-tracker.md`; drop it if the duplication grates.
 - **Round → pass → exercise nesting** — settled after two corrections, then
   generalised from "side" to "pass" when `sided` landed. Treat as decided.
 - **Open Work and `sided`** — decided 2026-09-30: Open Work's movement list
@@ -461,7 +464,7 @@ src/
       IntervalStep.jsx         Presentational: phase, side, round, next-up, chips
       PailsRailsStep.jsx       Presentational: phase, side, round, chips
       OpenWorkSession.jsx      Count-up work, count-down rest, set tracking, movement list
-      SteppedSession.jsx       Orchestrates Interval/Pails-Rails: countdowns, transport, cues
+      SteppedSession.jsx       Reads the step list: countdowns, Prev/Pause/Next, cues
       MuteToggle.jsx           Mute toggle; unmuting unlocks audio and beeps
       ProgressBar.jsx          Phase progress bar
     log/
@@ -471,7 +474,7 @@ src/
       SyncControls.jsx         Sign in/out, conflict resolution, cloud contents readout
   lib/
     activeSessionStore.jsx     Session reducer + provider; IndexedDB mirror; SESSION_SHAPE
-    sessionEngine.js           Pure phase machines, passes/session position, duration estimate
+    sessionEngine.js           Pure step sequence, passes, phase colours, duration estimate
     setsReps.js                Sets × Reps patterns and sequence generation
     reorder.js                 Pure drag-reorder index maths
     audioCues.js               AudioContext unlock/resume, tones, vibration, mute

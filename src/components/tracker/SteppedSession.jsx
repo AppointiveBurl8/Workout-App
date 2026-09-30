@@ -3,11 +3,8 @@ import { playTone, unlockAudio } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import {
   SIDE_LABELS,
-  advanceSessionPosition,
-  buildPasses,
-  resolvePosition,
-  retreatSessionPosition,
-  sessionSideMode,
+  buildStepSequence,
+  stepDurationSeconds,
 } from '../../lib/sessionEngine'
 import {
   dangerButtonClass,
@@ -32,18 +29,29 @@ function summarize(timerMode, config) {
   return `Stretch ${formatMMSS(holdSeconds)} / PAILs ${formatMMSS(pailsHoldSeconds)} / RAILs ${formatMMSS(railsHoldSeconds)} × ${roundsLabel(rounds)}`
 }
 
+/**
+ * Previous / Pause-Resume / Next - the only step navigation there is. Neither
+ * arrow is ever disabled: Next always has somewhere to go (the end of the
+ * workout counts), and Previous restarts the step when there's nothing behind it.
+ */
+function Transport({ paused, onPrev, onTogglePause, onNext }) {
+  return (
+    <div className="flex items-center justify-center gap-3 pb-4">
+      <button type="button" className={iconButtonClass} onClick={onPrev}>
+        ⏮ Prev
+      </button>
+      <button type="button" className={secondaryButtonClass} onClick={onTogglePause}>
+        {paused ? 'Resume' : 'Pause'}
+      </button>
+      <button type="button" className={iconButtonClass} onClick={onNext}>
+        Next ⏭
+      </button>
+    </div>
+  )
+}
+
 /** Serves both waits: the get-into-position lead-in and the between-exercise one. */
-function CountdownScreen({
-  heading,
-  exerciseName,
-  sideLabel,
-  summary,
-  remainingSeconds,
-  skipLabel,
-  paused,
-  onTogglePause,
-  onSkip,
-}) {
+function CountdownScreen({ heading, exerciseName, sideLabel, summary, remainingSeconds, children }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 p-6 text-center">
       <p className="text-base font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
@@ -55,49 +63,34 @@ function CountdownScreen({
       )}
       <p className="text-base text-neutral-500 dark:text-neutral-400">{summary}</p>
       <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <button type="button" className={secondaryButtonClass} onClick={onTogglePause}>
-          {paused ? 'Resume' : 'Pause'}
-        </button>
-        <button type="button" className={primaryButtonClass} onClick={onSkip}>
-          {skipLabel}
-        </button>
-      </div>
+      {children}
     </div>
   )
 }
 
-export default function SteppedSession({ steps, session, dispatch }) {
-  const {
-    timerMode,
-    transitioning,
-    transitionRemaining,
-    leadIn,
-    leadInRemaining,
-    round,
-    passIndex,
-    indexInPass,
-    pendingPosition,
-    paused,
-    started,
-    stepState,
-  } = session
-  const config = timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
+export default function SteppedSession({ steps: exercises, session, dispatch }) {
+  const { timerMode, leadIn, leadInRemaining, stepIndex, stepElapsedSeconds, paused, started } =
+    session
+  const config =
+    timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
 
-  // The session is a circuit: the exercise list per round, and on a unilateral
-  // workout a second pass over the two-sided ones. So what comes next is never
-  // just index + 1, and a symmetrical exercise isn't in the second pass at all.
-  const passes = buildPasses(steps, sessionSideMode(timerMode, config))
-  const here = resolvePosition(steps, passes, { round, passIndex, indexInPass })
-  const currentExercise = here.exercise
-  const side = here.side
+  // Everything on screen comes off the step at the current index - round, side,
+  // exercise, phase, colour and timer - so there is nothing to keep in sync.
+  const sequence = buildStepSequence(exercises, timerMode, config)
+  const step = sequence[stepIndex]
+  const previousStep = sequence[stepIndex - 1]
+  const nextStep = sequence[stepIndex + 1]
 
-  const position = { round, passIndex, indexInPass, passes, rounds: config.rounds }
-  const forward = advanceSessionPosition(position)
-  const backward = retreatSessionPosition(position)
-  const nextUpAt = forward.done ? null : resolvePosition(steps, passes, forward)
+  const round = step?.round ?? 1
+  const exercise = step ? exercises[step.exerciseIndex] : null
+  const total = stepDurationSeconds(step, timerMode, config)
+  const remainingSeconds = Math.max(0, total - stepElapsedSeconds)
 
-  const countdownRemaining = leadIn ? leadInRemaining : transitioning ? transitionRemaining : null
+  const countdownRemaining = leadIn
+    ? leadInRemaining
+    : step?.kind === 'transition'
+      ? remainingSeconds
+      : null
 
   useEffect(() => {
     if (countdownRemaining !== null && countdownRemaining <= 3 && countdownRemaining >= 1) {
@@ -105,137 +98,111 @@ export default function SteppedSession({ steps, session, dispatch }) {
     }
   }, [countdownRemaining])
 
-  // Completing a circuit is worth a cue of its own. It can't live in the step
-  // component any more: a round now ends by moving to a different exercise, which
-  // remounts that component and loses the before/after it would compare.
-  const prevRoundRef = useRef(round)
+  // One cue per step change, wherever the change came from: the timer running
+  // out, Next, or Previous all move the same index, so a manually taken step
+  // sounds exactly like one reached by waiting.
+  const prevCueRef = useRef({ stepIndex, round, leadIn })
   useEffect(() => {
-    if (round > prevRoundRef.current) playTone('roundComplete')
-    prevRoundRef.current = round
-  }, [round])
+    const prev = prevCueRef.current
+    const startedNewStep = stepIndex !== prev.stepIndex || (prev.leadIn && !leadIn)
+    if (startedNewStep) playTone(round > prev.round ? 'roundComplete' : 'transition')
+    prevCueRef.current = { stepIndex, round, leadIn }
+  }, [stepIndex, round, leadIn])
 
   const handleEndWorkout = () => {
     if (!window.confirm('End this workout now? It will be logged with the time so far.')) return
     dispatch({ type: 'END_WORKOUT' })
   }
 
-  const adjustConfig = (field, value) => dispatch({ type: 'ADJUST_CONFIG', field, value })
+  const transport = (
+    <Transport
+      paused={paused}
+      onPrev={() => dispatch({ type: 'PREV' })}
+      onTogglePause={() => dispatch({ type: 'TOGGLE_PAUSE' })}
+      onNext={() => dispatch({ type: 'NEXT' })}
+    />
+  )
 
-  function activeCountdown() {
-    if (leadIn) {
-      return {
-        heading: 'Get Into Position',
-        exerciseName: currentExercise.name,
-        sideLabel: side ? SIDE_LABELS[side] : null,
-        remainingSeconds: leadInRemaining,
-        skipLabel: 'Skip, I\u2019m ready',
-        onSkip: () => dispatch({ type: 'SKIP_LEAD_IN' }),
-      }
-    }
-    if (transitioning && pendingPosition) {
-      const pending = resolvePosition(steps, passes, pendingPosition)
-      const switchingSides = pendingPosition.passIndex !== passIndex
-      const sideLabel = pending.side ? SIDE_LABELS[pending.side] : null
-      const roundLabel = `Round ${pendingPosition.round} of ${config.rounds}`
-      return {
-        heading: switchingSides ? 'Switch Sides' : 'Up Next',
-        exerciseName: pending.exercise.name,
-        sideLabel: sideLabel ? `${sideLabel} \u00b7 ${roundLabel}` : roundLabel,
-        remainingSeconds: transitionRemaining,
-        skipLabel: switchingSides ? 'Skip wait, I\u2019m over' : 'Skip wait, start now',
-        onSkip: () => dispatch({ type: 'SKIP_TRANSITION' }),
-      }
-    }
-    return null
-  }
-  const countdown = activeCountdown()
+  if (!step) return null
 
   /** What the rest timer is resting for - the whole point of the rest, really. */
   function restNextUp() {
-    if (timerMode !== 'interval' || stepState.phase !== 'rest') return null
-    if (forward.done || !nextUpAt) return 'Last one \u2014 the workout ends after this'
-    const parts = [nextUpAt.exercise.name]
+    if (timerMode !== 'interval' || step.kind !== 'phase' || step.phase !== 'rest') return null
+    if (!nextStep) return 'Last one — the workout ends after this'
+    const parts = [exercises[nextStep.exerciseIndex].name]
     // A symmetrical movement has no side to name, so say nothing rather than
     // announcing a side it doesn't have.
-    if (nextUpAt.side && nextUpAt.side !== side) parts.push(SIDE_LABELS[nextUpAt.side].toLowerCase())
-    if (forward.round !== round) parts.push(`round ${forward.round} of ${config.rounds}`)
+    if (nextStep.side && nextStep.side !== step.side) {
+      parts.push(SIDE_LABELS[nextStep.side].toLowerCase())
+    }
+    if (nextStep.round !== round) parts.push(`round ${nextStep.round} of ${config.rounds}`)
     return `Next: ${parts.join(', ')}`
   }
 
+  function countdownProps() {
+    if (leadIn) {
+      return {
+        heading: 'Get Into Position',
+        exerciseName: exercise.name,
+        sideLabel: step.side ? SIDE_LABELS[step.side] : null,
+        remainingSeconds: leadInRemaining,
+      }
+    }
+    const switchingSides = previousStep && previousStep.passIndex !== step.passIndex
+    const sideLabel = step.side ? SIDE_LABELS[step.side] : null
+    const roundLabel = `Round ${step.round} of ${config.rounds}`
+    return {
+      heading: switchingSides ? 'Switch Sides' : 'Up Next',
+      exerciseName: exercise.name,
+      sideLabel: sideLabel ? `${sideLabel} · ${roundLabel}` : roundLabel,
+      remainingSeconds,
+    }
+  }
+
+  const showingCountdown = leadIn || step.kind === 'transition'
+
   return (
     <div className="flex flex-1 flex-col">
-      {countdown ? (
-        <CountdownScreen
-          {...countdown}
-          summary={summarize(timerMode, config)}
-          paused={paused}
-          onTogglePause={() => dispatch({ type: 'TOGGLE_PAUSE' })}
-        />
+      {showingCountdown ? (
+        <CountdownScreen {...countdownProps()} summary={summarize(timerMode, config)}>
+          {transport}
+        </CountdownScreen>
       ) : (
         <>
-          <p className="px-6 pt-4 text-center text-xl font-medium">{currentExercise.name}</p>
+          <p className="px-6 pt-4 text-center text-xl font-medium">{exercise.name}</p>
 
-          {/* Freshly initialized stepState already shows the full configured duration
-              at 0 elapsed, so the same step component doubles as the paused "ready"
-              screen before Start is tapped (item 7) - only the transport row changes. */}
+          {/* A step sitting at 0 elapsed already shows its full configured
+              duration, so the same component doubles as the paused "ready"
+              screen before Start is tapped - only the transport row changes. */}
           {timerMode === 'interval' ? (
             <IntervalStep
-              key={`${round}-${passIndex}-${indexInPass}`}
               config={config}
-              stepState={stepState}
-              side={side}
+              phase={step.phase}
+              remainingSeconds={remainingSeconds}
+              phaseTotal={total}
+              side={step.side}
               round={round}
               rounds={config.rounds}
               nextUp={restNextUp()}
-              onAdjustConfig={adjustConfig}
+              onAdjustConfig={(field, value) => dispatch({ type: 'ADJUST_CONFIG', field, value })}
             />
           ) : (
             <PailsRailsStep
-              key={`${round}-${passIndex}-${indexInPass}`}
               config={config}
-              stepState={stepState}
-              side={side}
+              phase={step.phase}
+              remainingSeconds={remainingSeconds}
+              phaseTotal={total}
+              side={step.side}
               round={round}
               rounds={config.rounds}
-              onAdjustConfig={adjustConfig}
+              onAdjustConfig={(field, value) => dispatch({ type: 'ADJUST_CONFIG', field, value })}
             />
           )}
 
-          <div className="flex items-center justify-center gap-3 pb-4">
-            {started ? (
-              <>
-                <button
-                  type="button"
-                  className={iconButtonClass}
-                  onClick={() => dispatch({ type: 'PREV' })}
-                  disabled={!backward}
-                >
-                  ⏮ Prev
-                </button>
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  onClick={() => dispatch({ type: 'TOGGLE_PAUSE' })}
-                >
-                  {paused ? 'Resume' : 'Pause'}
-                </button>
-                <button
-                  type="button"
-                  className={iconButtonClass}
-                  onClick={() => dispatch({ type: 'SKIP_PHASE' })}
-                >
-                  Skip
-                </button>
-                <button
-                  type="button"
-                  className={iconButtonClass}
-                  onClick={() => dispatch({ type: 'NEXT' })}
-                  disabled={forward.done}
-                >
-                  Next ⏭
-                </button>
-              </>
-            ) : (
+          {started ? (
+            transport
+          ) : (
+            <div className="flex items-center justify-center gap-3 pb-4">
               <button
                 type="button"
                 className={`${primaryButtonClass} px-10`}
@@ -246,8 +213,8 @@ export default function SteppedSession({ steps, session, dispatch }) {
               >
                 Start
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
 

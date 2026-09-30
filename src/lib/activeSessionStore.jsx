@@ -2,20 +2,15 @@ import { createContext, useContext, useEffect, useReducer, useRef, useState } fr
 import { getSetting, setSetting } from '../db'
 import {
   LEAD_IN_SECONDS,
-  TRANSITION_SECONDS,
-  advanceSessionPosition,
-  buildPasses,
+  buildStepSequence,
   endOpenWorkSet,
   initOpenWorkState,
-  initSessionPosition,
-  initStepState,
-  needsTransitionCountdown,
-  retreatSessionPosition,
-  sessionSideMode,
-  skipStepState,
-  stepPhaseConfigField,
+  resumeOpenWorkSet,
+  retreatOpenWorkState,
+  shouldRestartStep,
+  stepCountsAsWorkoutTime,
+  stepDurationSeconds,
   tickOpenWorkState,
-  tickStepState,
 } from './sessionEngine'
 import { useWakeLock } from './useWakeLock'
 import { useWallClockTicker } from './useWallClockTicker'
@@ -24,7 +19,7 @@ const STORAGE_KEY = 'activeSession'
 
 /** Bumped when the stored session's shape changes in a way an older mirrored
  * copy can't be read as. A mismatch is dropped rather than half-restored. */
-const SESSION_SHAPE = 4
+const SESSION_SHAPE = 5
 const PERSIST_INTERVAL_MS = 3000
 const IDLE_SESSION = { status: 'idle' }
 
@@ -45,63 +40,48 @@ function configFor(timerMode, config) {
   return config.openWorkConfig
 }
 
-function freshStepState(state) {
-  return initStepState(state.timerMode, configFor(state.timerMode, state.config))
+// The step list is structure only, so it changes just when `rounds` or the
+// exercises' `sided` flags do - neither of which moves during a session except
+// via a Rounds chip edit. Rebuilding it on every tick would mean rebuilding it
+// 14,400 times during a long catch-up, so it's memoised on those inputs.
+let cachedStepsKey = null
+let cachedSteps = null
+
+export function sessionSteps(state) {
+  const modeConfig = configFor(state.timerMode, state.config)
+  const key = [
+    state.timerMode,
+    modeConfig.rounds,
+    modeConfig.sideMode ?? '',
+    state.exercises.map((e) => (e.sided === false ? '0' : '1')).join(''),
+  ].join('|')
+  if (key !== cachedStepsKey) {
+    cachedStepsKey = key
+    cachedSteps = buildStepSequence(state.exercises, state.timerMode, modeConfig)
+  }
+  return cachedSteps
+}
+
+export function currentStep(state) {
+  return sessionSteps(state)[state.stepIndex]
+}
+
+function completed(state, durationSeconds, setsCompleted = null) {
+  return { ...state, status: 'complete', completion: { durationSeconds, setsCompleted } }
 }
 
 /**
- * The passes this session runs, from the exercise list captured when it started.
- * Deliberately not a live lookup: editing an exercise's `sided` flag mid-session
- * would otherwise reshape the circuit underneath a running workout.
+ * The one place a step change happens. Next, Previous and a timer running out
+ * all land here, so the round, side, phase and exercise on screen can never be
+ * derived three different ways - they're read off the step this lands on.
+ * Running off the end of the list completes the workout, by the same path a
+ * timer finishing the last step takes.
  */
-export function sessionPasses(state) {
-  const modeConfig = configFor(state.timerMode, state.config)
-  return buildPasses(state.exercises, sessionSideMode(state.timerMode, modeConfig))
-}
-
-function sessionPosition(state) {
-  const modeConfig = configFor(state.timerMode, state.config)
-  return {
-    round: state.round,
-    passIndex: state.passIndex,
-    indexInPass: state.indexInPass,
-    passes: sessionPasses(state),
-    rounds: modeConfig.rounds,
+function goToStep(state, index) {
+  if (index >= sessionSteps(state).length) {
+    return completed(state, state.sessionElapsedSeconds)
   }
-}
-
-/** Move to a slot in the circuit, always restarting that exercise's phase machine. */
-function atPosition(state, position) {
-  const moved = {
-    ...state,
-    round: position.round,
-    passIndex: position.passIndex,
-    indexInPass: position.indexInPass,
-  }
-  return {
-    ...moved,
-    stepState: freshStepState(moved),
-    transitioning: false,
-    transitionRemaining: TRANSITION_SECONDS,
-    pendingPosition: null,
-  }
-}
-
-/** The current exercise has finished: hand over to the next slot, or end the session. */
-function afterExercise(state, stepState, sessionElapsedSeconds) {
-  const next = advanceSessionPosition(sessionPosition(state))
-  const base = { ...state, stepState, sessionElapsedSeconds }
-  if (next.done) {
-    return {
-      ...base,
-      status: 'complete',
-      completion: { durationSeconds: sessionElapsedSeconds, setsCompleted: null },
-    }
-  }
-  if (!needsTransitionCountdown(state.timerMode, state.passIndex, next.passIndex)) {
-    return atPosition(base, next)
-  }
-  return { ...base, transitioning: true, transitionRemaining: TRANSITION_SECONDS, pendingPosition: next }
+  return { ...state, stepIndex: Math.max(0, index), stepElapsedSeconds: 0 }
 }
 
 function reducer(state, action) {
@@ -125,20 +105,16 @@ function reducer(state, action) {
         started: false,
         paused: false,
         sessionElapsedSeconds: 0,
-        transitioning: false,
-        transitionRemaining: TRANSITION_SECONDS,
         leadIn: false,
         leadInRemaining: LEAD_IN_SECONDS,
-        ...initSessionPosition(),
-        pendingPosition: null,
+        stepIndex: 0,
+        stepElapsedSeconds: 0,
         completion: null,
       }
-      return timerMode === 'open_work'
-        ? { ...base, openWork: initOpenWorkState() }
-        : { ...base, stepState: initStepState(timerMode, configFor(timerMode, config)) }
+      return timerMode === 'open_work' ? { ...base, openWork: initOpenWorkState() } : base
     }
 
-    // The tap that actually starts the workout - nothing ticks before this (item 7).
+    // The tap that actually starts the workout - nothing ticks before this.
     // Interval and Pails/Rails open on a lead-in countdown: both begin in a held
     // position, and you can't be in it at the same moment you tap the button.
     case 'START': {
@@ -174,21 +150,13 @@ function reducer(state, action) {
       if (state.timerMode === 'open_work') {
         const openWork = tickOpenWorkState(state.openWork, state.config.openWorkConfig)
         if (openWork.phase === 'complete') {
-          return {
-            ...state,
-            openWork,
-            status: 'complete',
-            completion: {
-              durationSeconds: openWork.sessionElapsedSeconds,
-              setsCompleted: openWork.setsCompleted,
-            },
-          }
+          return completed({ ...state, openWork }, openWork.sessionElapsedSeconds, openWork.setsCompleted)
         }
         return { ...state, openWork }
       }
 
-      // Counts down before the first phase, so it neither advances the exercise
-      // nor accumulates session time - the step is already sitting at its full
+      // Counts down before the first step, so it neither advances the session nor
+      // accumulates workout time - step 0 is already sitting at its full
       // configured duration waiting to start.
       if (state.leadIn) {
         if (state.leadInRemaining <= 1) {
@@ -197,83 +165,68 @@ function reducer(state, action) {
         return { ...state, leadInRemaining: state.leadInRemaining - 1 }
       }
 
-      if (state.transitioning) {
-        if (state.transitionRemaining <= 1) return atPosition(state, state.pendingPosition)
-        return { ...state, transitionRemaining: state.transitionRemaining - 1 }
+      const step = currentStep(state)
+      const total = stepDurationSeconds(step, state.timerMode, configFor(state.timerMode, state.config))
+      const stepElapsedSeconds = state.stepElapsedSeconds + 1
+      const sessionElapsedSeconds =
+        state.sessionElapsedSeconds + (stepCountsAsWorkoutTime(step) ? 1 : 0)
+      if (stepElapsedSeconds >= total) {
+        return goToStep({ ...state, sessionElapsedSeconds }, state.stepIndex + 1)
       }
-
-      const modeConfig = configFor(state.timerMode, state.config)
-      const nextStep = tickStepState(state.timerMode, state.stepState, modeConfig)
-      const sessionElapsedSeconds = state.sessionElapsedSeconds + 1
-      if (nextStep.done) return afterExercise(state, nextStep, sessionElapsedSeconds)
-      return { ...state, stepState: nextStep, sessionElapsedSeconds }
+      return { ...state, stepElapsedSeconds, sessionElapsedSeconds }
     }
 
-    // Jumps to the next phase within the current exercise (e.g. skip the rest of a
-    // hold), as opposed to NEXT which moves to a different exercise entirely.
-    case 'SKIP_PHASE': {
-      if (state.status !== 'active' || state.timerMode === 'open_work' || state.transitioning) return state
-      const modeConfig = configFor(state.timerMode, state.config)
-      const nextStep = skipStepState(state.timerMode, state.stepState, modeConfig)
-      if (nextStep.done) return afterExercise(state, nextStep, state.sessionElapsedSeconds)
-      return { ...state, stepState: nextStep }
-    }
-
-    // Exercise-level stepping, one slot at a time along the session sequence: the
-    // exercise list, repeated per round, and on a unilateral workout the whole of
-    // that repeated once per side. So stepping forward off the last exercise of a
-    // round lands on the first exercise of the next one, and off the last round of
-    // the left pass onto the right - and Previous comes back the same way. Neither
-    // wraps past the two real ends. Stepping always resets the new exercise's timer
-    // to its configured starting value.
+    // Ends the current step and starts the next, wherever that lands - the next
+    // phase, the next exercise, the next side, the next round, or the end of the
+    // workout. Never a no-op and never disabled: there is always a "next".
     case 'NEXT': {
-      if (state.status !== 'active' || state.timerMode === 'open_work') return state
-      if (state.transitioning) return atPosition(state, state.pendingPosition)
-      const next = advanceSessionPosition(sessionPosition(state))
-      if (next.done) return state
-      return atPosition(state, next)
+      if (state.status !== 'active' || !state.started) return state
+      if (state.timerMode === 'open_work') {
+        const { openWork, config } = state
+        return {
+          ...state,
+          openWork:
+            openWork.phase === 'work'
+              ? endOpenWorkSet(openWork, config.openWorkConfig.restSeconds)
+              : resumeOpenWorkSet(openWork),
+        }
+      }
+      if (state.leadIn) return { ...state, leadIn: false, leadInRemaining: LEAD_IN_SECONDS }
+      return goToStep(state, state.stepIndex + 1)
     }
 
+    // More than a few seconds into a step, Previous means "give me that one
+    // again" rather than "take me back one" - by then you've committed to it.
+    // On the first step there's nothing behind it, so it always restarts.
     case 'PREV': {
-      if (state.status !== 'active' || state.timerMode === 'open_work') return state
-      const previous = retreatSessionPosition(sessionPosition(state))
-      if (!previous) return state
-      return atPosition(state, previous)
+      if (state.status !== 'active' || !state.started) return state
+      if (state.timerMode === 'open_work') {
+        return {
+          ...state,
+          openWork: retreatOpenWorkState(state.openWork, state.config.openWorkConfig.restSeconds),
+        }
+      }
+      if (state.leadIn) return { ...state, leadInRemaining: LEAD_IN_SECONDS }
+      const restart = shouldRestartStep(state.stepElapsedSeconds)
+      return goToStep(state, restart ? state.stepIndex : state.stepIndex - 1)
     }
 
-    // The "Skip, I'm ready" control on the get-into-position screen.
-    case 'SKIP_LEAD_IN':
-      if (!state.leadIn) return state
-      return { ...state, leadIn: false, leadInRemaining: LEAD_IN_SECONDS }
-
-    // The "Skip wait, start now" control on the between-exercise Up Next screen.
-    case 'SKIP_TRANSITION':
-      if (!state.transitioning) return state
-      return atPosition(state, state.pendingPosition)
-
-    // A chip edit (Work/Rest/Hold/Rounds...). Retuning the phase currently running
-    // shifts what's left of it by the same amount; editing Rounds clamps the current
-    // round down if it's now out of range.
+    // A chip edit (Work/Rest/Hold/Rounds...). Durations are read off the config
+    // at display time, so retuning one needs nothing here - what's elapsed stays
+    // elapsed and the remaining time shifts with it. Rounds changes the length of
+    // the step list, and cutting it below where we are has to land somewhere.
     case 'ADJUST_CONFIG': {
       if (state.status !== 'active' || state.timerMode === 'open_work') return state
       const modeKey = state.timerMode === 'interval' ? 'intervalConfig' : 'pailsRailsConfig'
-      const oldConfig = state.config[modeKey]
       const { field, value } = action
-      const newModeConfig = { ...oldConfig, [field]: value }
-      let round = state.round
-      let stepState = state.stepState
-      if (field === 'rounds') {
-        round = Math.min(round, value)
-      } else {
-        const runningField = stepPhaseConfigField(state.timerMode, stepState.phase)
-        if (runningField === field) {
-          stepState = {
-            ...stepState,
-            remainingSeconds: Math.max(1, stepState.remainingSeconds + (value - oldConfig[field])),
-          }
-        }
+      const next = {
+        ...state,
+        config: { ...state.config, [modeKey]: { ...state.config[modeKey], [field]: value } },
       }
-      return { ...state, round, config: { ...state.config, [modeKey]: newModeConfig }, stepState }
+      if (field !== 'rounds') return next
+      const steps = sessionSteps(next)
+      if (next.stepIndex < steps.length) return next
+      return { ...next, stepIndex: steps.length - 1, stepElapsedSeconds: 0 }
     }
 
     case 'ADJUST_OPEN_WORK_CONFIG': {

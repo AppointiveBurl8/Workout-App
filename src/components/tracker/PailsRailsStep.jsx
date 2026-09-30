@@ -1,10 +1,8 @@
-import { usePhaseTransitionCues } from '../../lib/audioCues'
 import { formatMMSS } from '../../lib/formatDuration'
 import {
   PAILS_RAILS_PHASE_COLORS,
   PAILS_RAILS_PHASE_LABELS,
   SIDE_LABELS,
-  stepPhaseTotal,
 } from '../../lib/sessionEngine'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
@@ -14,26 +12,32 @@ import ProgressBar from './ProgressBar'
  * store so it survives leaving the Tracker tab. This component just renders the
  * current step state and forwards chip edits / phase-cue audio for it.
  */
-export default function PailsRailsStep({ config, stepState, side, round, rounds, onAdjustConfig }) {
-  usePhaseTransitionCues(stepState.phase, round, stepState.done)
-
-  const phaseTotal = stepPhaseTotal('pails_rails', stepState, config)
-  const colors = PAILS_RAILS_PHASE_COLORS[stepState.phase]
+export default function PailsRailsStep({
+  config,
+  phase,
+  remainingSeconds,
+  phaseTotal,
+  side,
+  round,
+  rounds,
+  onAdjustConfig,
+}) {
+  const colors = PAILS_RAILS_PHASE_COLORS[phase]
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
       <p className={`text-xl font-semibold uppercase tracking-wide ${colors.label}`}>
-        {PAILS_RAILS_PHASE_LABELS[stepState.phase]}
+        {PAILS_RAILS_PHASE_LABELS[phase]}
       </p>
       {side && (
         <p className="-mt-4 text-base font-medium text-neutral-600 dark:text-neutral-300">
           {SIDE_LABELS[side]}
         </p>
       )}
-      <p className="text-8xl font-bold tabular-nums">{formatMMSS(stepState.remainingSeconds)}</p>
+      <p className="text-8xl font-bold tabular-nums">{formatMMSS(remainingSeconds)}</p>
       <div className="w-full max-w-xs">
         <ProgressBar
-          value={phaseTotal > 0 ? 1 - stepState.remainingSeconds / phaseTotal : 1}
+          value={phaseTotal > 0 ? 1 - remainingSeconds / phaseTotal : 1}
           colorClassName={colors.bar}
         />
       </div>

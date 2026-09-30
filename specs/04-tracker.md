@@ -134,22 +134,14 @@ truth for this, and everything else derives from it:
 
 #### The position model
 
-Neither the round nor the side belongs to a movement's phase machine; both live
-on the session. `initIntervalStepState`/`initPailsRailsStepState` carry neither,
-and there's no `side_switch` phase. `sessionEngine.js` owns the sequencing as two
-pure mirrored functions - `advanceSessionPosition` and `retreatSessionPosition` -
-over `{ round, passIndex, indexInPass }`:
+Neither the round nor the side belongs to a movement's phase machine - there are
+no per-movement machines left. `buildStepSequence` walks round -> pass ->
+exercise -> phase once, up front, and stamps each step with the round, pass,
+exercise index and side it belongs to. Stepping is then just `index + 1` and
+`index - 1`.
 
-- Not at the end of the pass -> next slot in the same pass.
-- End of the pass, another pass to go -> first slot of the next pass.
-- End of the last pass, rounds remaining -> first slot of the first pass, next
-  round.
-- Otherwise -> the session is done.
-
-Note the position indexes **into the pass**, not into the exercise list. That is
-what lets the right pass be a different, shorter list without any of the stepping
-logic knowing about `sided`. `resolvePosition()` turns a position back into the
-concrete exercise and its side label.
+Each pass names the exercise **indices** it runs, so the right pass is simply a
+shorter list, and nothing in the stepping logic has to know `sided` exists.
 
 The exercise list, with its `sided` flags, is **snapshotted onto the session when
 it starts** rather than looked up live. Editing an exercise mid-session would
@@ -157,16 +149,15 @@ otherwise reshape the circuit underneath a running workout. Names still resolve
 live, so a rename shows up immediately; only the flags are frozen.
 
 `needsTransitionCountdown` decides whether a handover gets its own countdown
-screen (see Interval, above), now keyed on crossing a **pass** boundary rather
-than comparing side labels - which is the same thing, and still right when the
-exercise on one side of the boundary has no label to compare. When it does,
-`pendingPosition` records where that countdown is heading, so letting it run out,
-skipping it, and Next all land in the same place. A pass change reads "Switch
-Sides"; anything else reads "Up Next".
+step, keyed on crossing a **pass** boundary rather than comparing side labels -
+which is the same thing, and still right when the exercise on one side of the
+boundary has no label to compare. A countdown step carries the position of the
+exercise it leads into, so the screen can name what's coming without looking
+ahead. A pass change reads "Switch Sides"; anything else reads "Up Next".
 
-Because both functions are pure and exported, the Rest phase's next-up line and
-the Prev/Next disabled states read the same sequencing the reducer does rather
-than re-deriving it.
+Because the step list is pure and built the same way in the reducer and in the
+view, the Rest phase's next-up line reads the same sequence the reducer walks
+rather than re-deriving it.
 
 Completing a circuit plays the round-complete cue from `SteppedSession` rather
 than from the step components: a round now ends by moving to a different
@@ -182,50 +173,100 @@ Tapping Start on a stretching or mobility workout opens a 10-second
 get-into-position countdown (`LEAD_IN_SECONDS`) before the first phase begins:
 both modes start in a held position, and you can't be in it at the same moment
 you tap the button. The screen names the movement you're getting into, and
-offers Pause (a hold can need longer than ten seconds to settle into) and "Skip,
-I'm ready".
+carries the same Previous / Pause / Next row as everything else - Pause because
+a hold can need longer than ten seconds to settle into, Next because "I'm ready"
+is just the next step.
 
 It's the same `CountdownScreen` component as the between-exercise "Up Next" wait
-and ticks the same audio cue over its last three seconds, but it's separate
-state (`leadIn`/`leadInRemaining`) rather than a flag on `transitioning` - the
-transition countdown advances `currentIndex` when it completes and this one must
-not. The lead-in leaves `stepState` untouched, so the first phase starts at its
-full configured duration, and doesn't advance `sessionElapsedSeconds`, so the
-ten seconds aren't logged as workout time.
+and ticks the same audio cue over its last three seconds, but it is **not a step**:
+it's separate state (`leadIn`/`leadInRemaining`) sitting in front of step 0. Step
+0 is already at its full configured duration waiting, and the lead-in doesn't
+advance `sessionElapsedSeconds`, so the ten seconds aren't logged as workout
+time. Previous during the lead-in restarts it - there is nothing behind it.
 
 Open Work doesn't get one. It's self-paced against a session clock with no held
 position to arrange, and its own "End Set / Start Rest" control already sets the
 pace.
 
-### Shared transport (Interval, Pails/Rails)
+### Steps
 
-Previous / Pause-Resume / Skip / Next, operating on the exercise sequence:
+**A step is the smallest timed unit of a session.** Everything on screen - the
+round, the side, the exercise, the phase, its colour and the timer - is derived
+from the step at the current index. There is no separate phase machine and no
+separate position; there is one list and one index into it.
 
-- **Next** moves exactly one exercise forward; **Previous** exactly one back.
-  Neither wraps - Previous is a no-op on the first exercise, Next a no-op on the
-  last.
-- Stepping to a new exercise always resets that exercise's phase machine to its
-  configured starting value (first phase, full duration) - it never inherits
-  elapsed time from the exercise being left. The round is **not** part of that
-  reset: it lives on the session position, not in the phase machine, so it carries
-  across an exercise step and changes only where the circuit says it should (see
-  "Rounds are circuits, a side at a time").
-- **Skip** advances the *current* phase within the current exercise immediately
-  (as if its timer had hit zero), without changing which exercise is active.
-- Between exercises (when a step completes on its own, not via Next), an "Up Next"
-  countdown screen shows before the next exercise starts; "Skip wait, start now"
-  jumps straight in. **Not on a same-side Interval handover**, though: an Interval
-  exercise always ends on its configured Rest and that Rest *is* the gap, so a
-  countdown after it would mean resting twice over - see "Interval" above (lines
-  63-66) for the reasoning. Pails/Rails gets the countdown on every handover, and
-  a side change always gets one whichever mode it is, headed "Switch Sides" and
-  naming the side being moved to. `needsTransitionCountdown()` in
-  `sessionEngine.js` is the single place that decides.
-- Next and Previous step along the full session sequence - the exercise list, once
-  per side, once per round. So Next off the last exercise of the left pass lands on
-  the first exercise of the right pass, and off the end of the right pass onto the
-  next round's left pass; Previous comes back the same way. They still stop at the
-  two real ends of the session.
+| Mode | A step is |
+|---|---|
+| **Open Work** | one work block, or one rest |
+| **Interval** | one work interval, one rest, or one "Up Next" countdown |
+| **Pails/Rails** | one phase - stretch hold, ramp, PAILs, switch, RAILs - per exercise, per side, per round, plus the countdown before each handover |
+
+`buildStepSequence(exercises, timerMode, config)` builds the whole list up front
+for the two stepped modes. It holds structure only - round, pass, exercise,
+side, phase - and durations are read from the live config at display time, so
+retuning a chip mid-session doesn't invalidate it. Only `rounds` changes its
+length, and because the list is round-major, adding rounds only appends.
+
+Open Work has **no step list**: a work block counts up with no set length and the
+session runs to `sessionTargetSeconds`, so how many steps it contains isn't known
+in advance. Its two phases are its steps.
+
+### Transport: Previous / Pause-Resume / Next
+
+Three controls, the same in all three modes, on the running screen and on both
+countdown screens. **There is no Skip.** It used to sit alongside these and
+overlapped with them; everything it did, Next does.
+
+**Next** ends the current step and starts the next one, wherever that lands - the
+next phase, the next exercise, the next side, the next round:
+
+- On the **final step**, it completes the workout and hands off to the log, by the
+  same path a timer finishing that step takes. (This resolves an assumption left
+  open when stepping was exercise-level: Next at the end used to be a no-op.)
+- It is **never disabled**. There is always a next thing, including the end.
+- In Open Work, Next during a set ends it, counts it and starts the rest - the
+  same as "End Set / Start Rest"; during a rest it cuts the rest short and starts
+  the next set. Open Work has no final step, so Next never ends the session; the
+  `sessionTargetSeconds` hard stop still does.
+
+**Previous** is not a plain mirror of Next, because the common case for tapping it
+is "that one again", not "the one before":
+
+- More than **3 seconds** into the step (`PREV_RESTART_THRESHOLD_MS`), it
+  **restarts the current step** - back to its full duration, same step.
+- **3 seconds or less**, it goes **back one step** and starts it from full.
+- On the **first step** it always restarts, because there is nothing behind it. It
+  is never a no-op and never disabled.
+- In Open Work, Previous during a set restarts the set clock (a count-up block has
+  no earlier step that would mean anything). During a rest it restarts the rest,
+  or - within the first 3 seconds - drops back into the set and **un-counts** it,
+  which is the "tapped End Set by mistake" case.
+
+**One function moves the index.** `goToStep()` in `activeSessionStore.jsx` is
+where Next, Previous and a timer running out all land, so the round, side, phase
+and exercise can't be computed three different ways. Running off the end of the
+list is what completes the workout, which is why manual and natural endings take
+the identical path.
+
+**The display updates on the tap, not on the next tick.** A step change sets
+`stepElapsedSeconds` to 0, and the remaining time is `duration - elapsed`, so the
+new step's full duration is on screen immediately. (Sub-second precision is not
+reset: tapping part-way through a second means the first tick of the new step
+arrives a fraction early. Not worth threading a timestamp through the reducer
+for.)
+
+**Countdowns between exercises** still appear where they did - an "Up Next" before
+a Pails/Rails handover, a "Switch Sides" on any pass change - but they are now
+ordinary steps in the list rather than an overlay, which is what lets Next and
+Previous move through them like anything else. **Not on a same-side Interval
+handover**, though: an Interval exercise always ends on its configured Rest and
+that Rest *is* the gap, so a countdown after it would mean resting twice over.
+`needsTransitionCountdown()` in `sessionEngine.js` is the single place that
+decides, and `buildStepSequence` is its only caller.
+
+A countdown step doesn't bill workout time (`stepCountsAsWorkoutTime`), the same
+as the lead-in - so the logged duration counts only phases actually worked, and
+skipping a step with Next doesn't log time you didn't spend.
 
 ### Total duration estimate
 
@@ -407,6 +448,23 @@ button.
 
 ## Known Issues / Changelog
 
+- **Changed (2026-09-30)** - Removed Skip; Next/Previous now handle step
+  navigation at phase level, Previous restarts if >3s elapsed. Skip overlapped
+  with Next and the two disagreed about what a "step" was: Skip moved one phase,
+  Next moved a whole exercise. A session is now a flat list of steps - see "Steps"
+  above - and the two arrows are the only navigation there is, in all three modes,
+  on the running screen and on both countdown screens. Next on the final step
+  completes the workout, resolving the open assumption below. Previous restarts
+  the current step past `PREV_RESTART_THRESHOLD_MS` and steps back before it.
+  Neither is ever disabled. The per-exercise phase machines
+  (`tickStepState`/`skipStepState` and friends) and the exercise-level position
+  (`advanceSessionPosition`/`retreatSessionPosition`, `pendingPosition`,
+  `transitioning`) are gone with them; `goToStep()` is the single place the index
+  moves. `SESSION_SHAPE` went to 5, so an in-flight workout across this deploy is
+  discarded, by design.
+  *Interpretation worth flagging:* Open Work keeps "End Set / Start Rest"
+  alongside Next, which does the same thing during a set. Next doesn't say what it
+  counts and that button does, so it stayed. Say the word and it goes.
 - **Added** - `Exercise.sided`, so a symmetrical movement runs once per round
   instead of being run twice under two side labels - see "Symmetrical exercises
   run once" above. The session position moved from
@@ -496,20 +554,21 @@ button.
 - **Fixed** - Next/Previous step-reset rule made explicit and shared by both
   Interval and Pails/Rails via `sessionEngine.js`'s `NEXT`/`PREV` handling: one
   exercise at a time, always resets to the new exercise's configured start, no
-  wrap-around at either end. *Assumption: no wrap-around desired (Next on the last
-  exercise does not complete the workout) - flag it if wrap-to-complete is
-  actually wanted.* Note: targeted reproduction of the previously reported
+  wrap-around at either end. *That assumption - "Next on the last exercise does
+  not complete the workout" - was **resolved the other way** on 2026-09-30: Next
+  on the final step now completes the workout. Superseded; see the Skip removal
+  at the top of this list.* Note: targeted reproduction of the previously reported
   "skipped/duplicated step" symptom did not reproduce it against the prior
   remount-based implementation either; the explicit reducer-driven version in this
   patch is a hardening of the contract, not a fix for an observed regression.
   Open Work has no per-movement stepping (unchanged, static reference list), so
   this item doesn't apply there.
-- **Fixed** - Pails/Rails now has the same Previous / Pause-Resume / Skip / Next
-  transport row as Interval, operating on its ramp -> PAILS hold -> switch cue ->
-  RAILS hold sequence via the shared step-reset rule above. Interval also gained
-  the same Skip control (advance the current phase without leaving the exercise) -
-  it existed for neither mode before this patch, despite the "same row as Interval"
-  framing.
+- **Fixed** - Pails/Rails now has the same transport row as Interval, operating on
+  its ramp -> PAILS hold -> switch cue -> RAILS hold sequence via the shared
+  step-reset rule above. Interval also gained the same Skip control (advance the
+  current phase without leaving the exercise) - it existed for neither mode before
+  this patch, despite the "same row as Interval" framing. *Skip was removed again
+  on 2026-09-30, its job folded into Next; see the top of this list.*
 - **Fixed** - Interval gained `sideMode` (`bilateral`/`unilateral`), confirmable on
   the Start Workout screen. Pails/Rails' side handling moved from a per-workout
   `bilateral`/`left_right` choice to a constant `sideMode: 'unilateral'` - seen

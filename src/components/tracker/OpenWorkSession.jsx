@@ -3,7 +3,12 @@ import { playTone, unlockAudio } from '../../lib/audioCues'
 import { SIDE_MODE_LABELS } from '../../lib/categories'
 import { formatMMSS } from '../../lib/formatDuration'
 import { SETS_REPS_PATTERN_LABELS, getRepsSequence } from '../../lib/setsReps'
-import { dangerButtonClass, primaryButtonClass, secondaryButtonClass } from '../../lib/ui'
+import {
+  dangerButtonClass,
+  iconButtonClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from '../../lib/ui'
 import AdjustableChip from './AdjustableChip'
 import ProgressBar from './ProgressBar'
 
@@ -186,9 +191,20 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
         )}
       </div>
 
-      <div className="flex justify-center gap-3">
-        {started ? (
-          <>
+      {started ? (
+        <div className="flex flex-col items-center gap-3">
+          {/* Same transport as the other two modes. A step here is one work
+              block or one rest: Next ends the set and starts the rest, or cuts
+              a rest short; Previous restarts the current one, or backs out of a
+              rest tapped by mistake. */}
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              className={iconButtonClass}
+              onClick={() => dispatch({ type: 'PREV' })}
+            >
+              ⏮ Prev
+            </button>
             <button
               type="button"
               className={secondaryButtonClass}
@@ -199,14 +215,25 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
             </button>
             <button
               type="button"
-              className={primaryButtonClass}
-              disabled={complete || state.phase !== 'work'}
-              onClick={() => dispatch({ type: 'END_SET' })}
+              className={iconButtonClass}
+              onClick={() => dispatch({ type: 'NEXT' })}
             >
-              End Set / Start Rest
+              Next ⏭
             </button>
-          </>
-        ) : (
+          </div>
+          {/* Kept alongside Next, which does the same thing during a set: this
+              is the one that says what it counts. */}
+          <button
+            type="button"
+            className={primaryButtonClass}
+            disabled={complete || state.phase !== 'work'}
+            onClick={() => dispatch({ type: 'END_SET' })}
+          >
+            End Set / Start Rest
+          </button>
+        </div>
+      ) : (
+        <div className="flex justify-center gap-3">
           <button
             type="button"
             className={`${primaryButtonClass} px-10`}
@@ -217,8 +244,8 @@ export default function OpenWorkSession({ exercises, session, dispatch }) {
           >
             Start
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="flex justify-center">
         <button type="button" className={dangerButtonClass} disabled={complete} onClick={handleEndWorkout}>
