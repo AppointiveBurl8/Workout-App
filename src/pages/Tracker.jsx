@@ -15,7 +15,7 @@ export default function Tracker() {
   const templateId = searchParams.get('templateId')
   const resolvedTemplateId = templateId ? Number(templateId) : null
 
-  const { session, dispatch, hydrated } = useActiveSession()
+  const { session, dispatch, hydrated, screenLocked } = useActiveSession()
   const allExercises = useLiveQuery(() => getExercises(), [])
   const template = useLiveQuery(
     () => (resolvedTemplateId ? getWorkoutTemplate(resolvedTemplateId) : Promise.resolve(null)),
@@ -124,7 +124,17 @@ export default function Tracker() {
     <div className="flex flex-1 flex-col">
       <div className="flex items-center justify-between px-6 pt-6">
         <div className="w-11" aria-hidden="true" />
-        <h1 className="text-center text-xl font-semibold">{session.workoutName}</h1>
+        <div className="flex flex-col items-center">
+          <h1 className="text-center text-xl font-semibold">{session.workoutName}</h1>
+          {/* No way to tell a working wake lock from a denied one on a phone
+              otherwise. Absent entirely where the API isn't supported. */}
+          {screenLocked && (
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+              Screen on
+            </p>
+          )}
+        </div>
         <MuteToggle />
       </div>
       {session.timerMode === 'open_work' ? (

@@ -258,7 +258,43 @@ Log tab exists to tell those apart in one tap: it unmutes, unlocks, plays the
 round-complete cue, and reports the context's state. "running" with nothing
 audible means the block is outside the app.
 
+## Screen wake lock
+
+A session holds a screen wake lock (`src/lib/useWakeLock.js`) for as long as it
+exists - from the moment it's created on the Tracker until it completes or is
+cleared. Paused counts. So do the lead-in and "Up Next" countdown screens: those
+are part of a running workout, and a phone that sleeps during the ten seconds
+you're getting into position is exactly as useless as one that sleeps mid-hold.
+
+The lock is held by `ActiveSessionProvider`, not by the Tracker page, for the
+same reason the session state is: the page unmounts on a tab switch, and
+checking the Log mid-workout shouldn't let the screen go dark. Releasing is tied
+to the session ending, not to the Tracker unmounting.
+
+Two things re-acquire it, because one request is not enough:
+
+- The OS drops the lock whenever the page is hidden and never takes it back, so a
+  `visibilitychange` listener re-requests on return.
+- Some states reject a request made without a recent user gesture. A
+  `pointerdown` listener retries on the next tap rather than leaving the screen
+  to sleep for the rest of the session.
+
+The Tracker header shows a small "Screen on" dot while a lock is actually held.
+It renders nothing when the request was denied and nothing where the API is
+unsupported - the point of it is to tell a working lock from a silently failed
+one on a device you can't inspect.
+
+**What it does not do:** a wake lock prevents the *automatic* sleep timer only.
+Pressing the side button still locks the phone, and JS is suspended while it's
+locked - see "Wall-clock timing" for what happens to the session's elapsed time
+across that.
+
 ## Known Issues / Changelog
+
+- **Added** - the screen is held awake for the whole of an active session, with a
+  "Screen on" indicator in the Tracker header - see "Screen wake lock" above.
+  Previously nothing in the app touched `navigator.wakeLock` and the phone slept
+  mid-workout on its usual timer.
 
 - **Corrected (doc only)** - the Shared transport section still described two
   things the circuit rework had changed underneath it, and contradicted this

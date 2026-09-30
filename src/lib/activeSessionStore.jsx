@@ -16,6 +16,7 @@ import {
   tickOpenWorkState,
   tickStepState,
 } from './sessionEngine'
+import { useWakeLock } from './useWakeLock'
 
 const STORAGE_KEY = 'activeSession'
 
@@ -324,8 +325,13 @@ export function ActiveSessionProvider({ children }) {
     return () => clearInterval(id)
   }, [session.status, session.started, session.paused, dispatch])
 
+  // Keeps the screen awake for the whole session, paused and between-exercise
+  // countdowns included - held here rather than in the Tracker page so switching
+  // tabs mid-workout doesn't let the phone sleep.
+  const screenLocked = useWakeLock(session.status === 'active')
+
   return (
-    <ActiveSessionContext.Provider value={{ session, dispatch, hydrated }}>
+    <ActiveSessionContext.Provider value={{ session, dispatch, hydrated, screenLocked }}>
       {children}
     </ActiveSessionContext.Provider>
   )

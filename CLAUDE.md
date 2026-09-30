@@ -1,6 +1,8 @@
 # Workout Tracker
 
-**Last updated:** 2026-09-30 · code state describes commit `5cd7611` (deployed as Pages run #24); spec accuracy re-verified at `58cff65` and the fixes that followed it.
+**Last updated:** 2026-09-30 · code state describes this branch through the screen
+wake lock commit; spec accuracy re-verified at `58cff65` and the fixes that
+followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
 in code is marked **not verified**.
@@ -141,7 +143,7 @@ workout, never per exercise.
 | Audio cues + mute toggle | Done, unverified on iPhone | `src/lib/audioCues.js`, `tracker/MuteToggle.jsx` |
 | Sound check diagnostic | Done | `src/components/log/SoundCheck.jsx` |
 | Bottom nav (4 rounded cards, filled active, safe-area) | Done | `src/components/BottomNav.jsx` |
-| Screen wake lock | **Not started** | — (grep for `wakeLock` returns nothing) |
+| Screen wake lock | Done, unverified on iPhone | `src/lib/useWakeLock.js`, held by `activeSessionStore.jsx` |
 | Edit / delete a logged session | **Not started** (UI) | db helpers exist, unused — see §7 |
 | Rest-day logging | **Not started** | — |
 
@@ -245,8 +247,19 @@ half-restored. So a workout in progress across a deploy is lost by design.
 *Not verified:* real iOS backgrounding — timers throttle when a page is hidden and
 nothing compensates by wall-clock on resume, so a long background may under-count.
 
-**Q: Is screen wake-lock implemented?** **No.** No `wakeLock` / `NoSleep`
-reference anywhere in `src/`. The phone will sleep mid-workout.
+**Q: Is screen wake-lock implemented?** **Yes**, as of the wake-lock commit.
+`useWakeLock()` is called by `ActiveSessionProvider` (not the Tracker page, which
+unmounts on a tab switch) for as long as `session.status === 'active'` - paused,
+lead-in and transition screens included - and releases on the session ending. It
+re-acquires on `visibilitychange` (the OS drops the lock whenever the page hides)
+and on the next `pointerdown` (some states reject a request without a recent
+gesture). A "Screen on" dot in the Tracker header shows when a lock is actually
+held, and nothing at all when denied or unsupported.
+*Caveat:* this stops the auto-sleep timer only. The side button still locks the
+phone and suspends JS.
+*Not verified:* on a real iPhone. Headless Chromium refuses a real
+`wakeLock.request()`, so the acquire/release/re-acquire wiring was verified
+against a recording stub, not the platform API.
 
 **Q: Are Start Workout config fields editable, or read-only?** **Editable.**
 `TimerModeConfigFields` renders `<input type="number">` and `<select>` with live
@@ -312,7 +325,7 @@ in the build sandbox. All four are code-complete but unproven.
 | Item | Status | What to check |
 |---|---|---|
 | Audio unlock + playback | **Untested on device.** Verified only in headless Chromium under `--autoplay-policy=document-user-activation-required` | Does the Log tab's **Sound check** report `running`, and do you *hear* the beep? Running + silent ⇒ the ring/silent switch is muting Web Audio, which no app code can override |
-| Wake lock | **Not implemented** | Screen will sleep mid-workout |
+| Wake lock | **Untested on device.** Verified in headless Chromium against a stubbed `navigator.wakeLock`, since the real one refuses there | Start a workout, leave the phone alone for 2 minutes: the screen stays on and the header shows "Screen on" |
 | PWA safe-area | **Untested.** `env(safe-area-inset-bottom)` is set on the bottom nav and `viewport-fit=cover` in `index.html` | Bottom nav clearing the home indicator on a notched iPhone |
 | Backgrounding | **Untested.** Store rehydrates and the audio context resumes on `visibilitychange` | Whether elapsed time stays accurate after a few minutes backgrounded — timers throttle and nothing reconciles against wall-clock |
 | Google sign-in popup | **Untested.** Sandbox blocks `apis.google.com` | Sign-in completing on Safari; `appointiveburl8.github.io` must be in Firebase's Authorized domains |
@@ -389,7 +402,8 @@ src/
     formatDuration.js          formatMMSS
     categories.js              Category labels and colors
     ui.js                      Shared button/input class strings
-    useInterval.js             Interval hook
+    useInterval.js             Interval hook (currently unused)
+    useWakeLock.js             Screen wake lock held for the life of a session
 specs/
   01-data-model.md             Schema + migrations + settings keys; Changelog for doc corrections
   04-tracker.md                Timer modes, circuit/side rules, audio, changelog
