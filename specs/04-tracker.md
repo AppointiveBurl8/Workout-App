@@ -416,9 +416,10 @@ button.
   including for rows that predate it, so nothing changes until a movement is
   explicitly unticked. `SESSION_SHAPE` went to 4; an in-flight workout across
   that deploy is discarded, by design.
-  *Open:* Open Work's `blocked`/`alternating` movement list ignores the flag
-  entirely - it's a reference list with no sequencing to skip. Flagged to the
-  owner for a decision, deliberately untouched here.
+  *Decided, not open:* Open Work's `blocked`/`alternating` movement list ignores
+  the flag entirely and stays that way. It's a static reference list with no
+  sequencing to skip, so there is nothing for the flag to change without
+  redefining what that list means. Confirmed by the owner rather than assumed.
 - **Fixed** - session time no longer under-counts when the phone is locked or
   the tab is backgrounded. Ticks are measured against the wall clock and replayed
   through the existing single-tick path, so a gap lands where a foreground run

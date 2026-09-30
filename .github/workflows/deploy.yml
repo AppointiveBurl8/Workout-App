@@ -32,6 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Gates the deploy: a broken streak rule or session-sequencing change
+      # shouldn't reach the phone. Pure logic only, so it costs about a second.
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 

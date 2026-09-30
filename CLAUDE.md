@@ -40,16 +40,20 @@ history. Export a backup or sync before installing.
   remote. This branch *is* the default branch.
 - **Live site vs. branch:** identical. Everything on this branch is live,
   including all Sets × Reps work, cloud sync, the circuit/side rework, the
-  lead-in countdown, the audio fixes, and drag-to-reorder.
+  lead-in countdown, the audio fixes, drag-to-reorder, the wake lock, wall-clock
+  timing, the PWA, log editing with rest days, and the per-exercise `sided` flag.
 - **Deploy flow:** push → `.github/workflows/deploy.yml` (triggers on `main` *or*
-  this branch) → `npm ci` → `npm run build` → `actions/upload-pages-artifact` →
-  `actions/deploy-pages`. Takes ~1 min. Run #24 for `5cd7611` succeeded.
+  this branch) → `npm ci` → **`npm test`** → `npm run build` →
+  `actions/upload-pages-artifact` → `actions/deploy-pages`. Takes ~1 min.
+  Run #29 for `17a6f3a` succeeded (the last one before the test gate went in).
+  **A failing test now blocks the deploy** — that's the point of it; the live
+  site keeps serving the previous build rather than a broken one.
 
 ## 3. Data model (as implemented)
 
 Dexie database `WorkoutTrackerDB`, defined in `src/db.js`. **Schema version 8.**
 
-### Indexes (v6 `stores`)
+### Indexes (v8 `stores`, unchanged since v1 apart from `settings`)
 
 ```js
 exercises:       '++id, name, *categories'
@@ -212,7 +216,7 @@ Kept as stated unless the code contradicts them. Two do.
 
 ## 6. Recent changes
 
-Dated from `git log` (28 commits, 2026-09-02 → 2026-09-29).
+Dated from `git log` (34 commits, 2026-09-02 → 2026-09-30).
 
 **Foundation (09-02)** — `dc720fe` scaffold · `422ff2b` Tailwind + Dexie + 4-tab
 shell · `c738d1d` Library · `160c414` Builder · `2a047df` Tracker (three modes) ·
@@ -241,8 +245,21 @@ last write + plain-language errors · `e7d2cad` fixed restores never syncing
 a round became one pass through every exercise · `767b106` corrected nesting to
 round → side → exercise.
 
-**Latest (09-26 → 09-29)** — `c117e88` three audio-unlock fixes + Sound check ·
-`5cd7611` drag-to-reorder replacing up/down buttons.
+**Audio & reordering (09-26 → 09-29)** — `c117e88` three audio-unlock fixes +
+Sound check · `5cd7611` drag-to-reorder replacing up/down buttons.
+
+**Docs sweep (09-29 → 09-30)** — `171b038` CLAUDE.md rewritten as a verifiable
+handoff · `58cff65` four spec statements the circuit rework left behind ·
+`948a271` three more §Settings drifts in the data model spec.
+
+**Device & durability (09-30)** — `f1a076a` screen wake lock for the life of a
+session · `de04778` wall-clock timing so backgrounded time is recovered
+(`TICK_N`) · `81287d0` installable PWA: manifest, icons, service worker,
+`storage.persist()`.
+
+**Log & sides (09-30)** — `adf0a15` add/edit/delete log entries + rest days
+(db v7) and the first tests in the repo · `17a6f3a` per-exercise `sided` flag,
+session position reworked to `(round, passIndex, indexInPass)` (db v8).
 
 ## 7. Known bugs & gaps
 
@@ -250,8 +267,9 @@ Answers to the six explicit checks, each verified in code:
 
 **Q: Does manual skip next/prev update round and phase state in all three modes?**
 **Interval + Pails/Rails: yes.** `NEXT`/`PREV` go through `atPosition()`, which
-sets `currentIndex`, `round` *and* `side` together and rebuilds `stepState` from
-scratch. `SKIP_PHASE` advances the phase machine and, when that finishes the
+sets `round`, `passIndex` *and* `indexInPass` together and rebuilds `stepState`
+from scratch. The side isn't stored at all any more — it's derived from the pass
+and the exercise's `sided` flag, so it cannot disagree with the position. `SKIP_PHASE` advances the phase machine and, when that finishes the
 exercise, hands to `afterExercise()` which advances the same position. Round is
 correct **by construction** since it moved to session level — it is no longer
 possible for the phase machine and the round counter to disagree.
@@ -268,7 +286,7 @@ corrupt the first phase if that UI ever changed.
 **Yes, all three.** `ActiveSessionProvider` is mounted above the router in
 `App.jsx`, so switching tabs never unmounts it. State is mirrored to
 `db.settings['activeSession']` every 3s and rehydrated on app start.
-*Caveat:* the mirror carries a `SESSION_SHAPE` version (currently `3`); a session
+*Caveat:* the mirror carries a `SESSION_SHAPE` version (currently `4`); a session
 stored by a build with a different shape is **discarded** on hydrate rather than
 half-restored. So a workout in progress across a deploy is lost by design.
 *Caveat:* up to 3s of progress can be lost on a hard kill (the persist interval).
@@ -336,8 +354,8 @@ fourth one:
 - `WorkoutTemplate.sideMode`: `bilateral`|`blocked`|`alternating` — only a
   *grouping label* for the Open Work movement list, unrelated to the above.
 **Open Work ignores `sided` completely** — its movement list is a static
-reference with no sequencing to skip. Deliberately untouched; flagged as an open
-question in `specs/04-tracker.md`.
+reference with no sequencing to skip. **Decided to stay that way** (owner
+confirmed, 2026-09-30), not an open question; see `specs/04-tracker.md`.
 
 ### Other confirmed gaps
 
@@ -407,8 +425,10 @@ in the build sandbox. All four are code-complete but unproven.
   prompt. Also undecided whether a very old mirrored session should expire.
 - **Interval handover countdown** — dropped for same-side handovers (§5). Flagged
   to the owner for confirmation; no response yet.
-- **Round → side nesting** — settled at round → side → exercise after two
-  corrections. Treat as decided.
+- **Round → pass → exercise nesting** — settled after two corrections, then
+  generalised from "side" to "pass" when `sided` landed. Treat as decided.
+- **Open Work and `sided`** — decided 2026-09-30: Open Work's movement list
+  ignores the flag and stays as it is. Closed, not pending.
 
 ## 10. File map
 
@@ -416,20 +436,20 @@ in the build sandbox. All four are code-complete but unproven.
 src/
   App.jsx                      Routes + CloudSyncProvider/ActiveSessionProvider above the router
   main.jsx                     React root
-  db.js                        Dexie schema v6, all migrations, every CRUD helper, export/import
+  db.js                        Dexie schema v8, all migrations, every CRUD helper, export/import
   index.css                    Tailwind entry
   pages/
     Library.jsx                Workouts/Exercises toggle, archive, duplicate, delete
     Builder.jsx                On-the-fly exercise list → Start Workout
     StartWorkout.jsx           Mode picker, editable config, duration estimate, "Begin"
     Tracker.jsx                Loads data, picks the mode component, header + MuteToggle
-    Log.jsx                    Stats, filters, history; renders LogEntryForm only post-workout
+    Log.jsx                    Stats, filters, tappable history; Add entry + the edit overlay
   components/
     BottomNav.jsx              Four rounded cards, safe-area padding
     CategoryBadge.jsx          Category pill
     ExerciseEditor.jsx         Create/edit exercise overlay
-    ExerciseForm.jsx           Name, categories, notes
-    ExerciseListItem.jsx       One row: drag handle, position number, name, remove
+    ExerciseForm.jsx           Name, categories, has-left/right-sides, notes
+    ExerciseListItem.jsx       One row: drag handle, position, name, "Both sides" chip, remove
     ExercisePicker.jsx         Autocomplete + inline create
     ReorderableExerciseList.jsx Pointer-event drag reorder + keyboard fallback
     SetsRepsEditor.jsx         Sets × Reps overlay (patterns, table, preview)
@@ -446,7 +466,7 @@ src/
       ProgressBar.jsx          Phase progress bar
     log/
       BackupControls.jsx       Export/import JSON + stale-backup reminder
-      LogEntryForm.jsx         Post-workout entry (date, category, duration, sets, RPE, notes)
+      LogEntryForm.jsx         One form, three modes: post-workout, add, edit (+ two-step delete)
       SoundCheck.jsx           Diagnostic: unlock, play, report AudioContext state
       SyncControls.jsx         Sign in/out, conflict resolution, cloud contents readout
   lib/
