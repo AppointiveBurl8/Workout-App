@@ -9,15 +9,16 @@ import SyncControls from '../components/log/SyncControls'
 import { EXERCISE_CATEGORIES, getLoggedSessions, getWorkoutTemplates } from '../db'
 import { CATEGORY_LABELS, CATEGORY_TAB_ACTIVE_CLASSES } from '../lib/categories'
 import {
-  computeStreak,
   countSince,
+  currentStreak,
   formatDisplayDate,
   localDayKey,
   startOfMonth,
   startOfWeek,
 } from '../lib/dateStats'
+import { isRestDay } from '../lib/loggedSession'
 import { formatMMSS } from '../lib/formatDuration'
-import { inputClass, labelClass } from '../lib/ui'
+import { inputClass, labelClass, secondaryButtonClass } from '../lib/ui'
 
 const FILTERS = ['all', ...EXERCISE_CATEGORIES]
 
@@ -30,9 +31,36 @@ function StatTile({ label, value }) {
   )
 }
 
-function HistoryRow({ session, templateName }) {
+const rowClass =
+  'w-full min-h-11 rounded-lg border border-neutral-200 p-3 text-left active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800'
+
+/** A rest day has nothing to show but the fact of it, so it reads as one muted line. */
+function RestRow({ session, onEdit }) {
   return (
-    <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+    <button type="button" onClick={onEdit} className={rowClass}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+            Rest day
+          </span>
+          <span className="text-xs text-neutral-400 dark:text-neutral-500">
+            {formatDisplayDate(session.date)}
+          </span>
+        </div>
+        <span aria-hidden="true" className="text-neutral-300 dark:text-neutral-600">
+          ›
+        </span>
+      </div>
+      {session.notes && (
+        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{session.notes}</p>
+      )}
+    </button>
+  )
+}
+
+function HistoryRow({ session, templateName, onEdit }) {
+  return (
+    <button type="button" onClick={onEdit} className={rowClass}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm font-medium">{templateName ?? 'On-the-fly'}</p>
@@ -40,7 +68,12 @@ function HistoryRow({ session, templateName }) {
             {formatDisplayDate(session.date)}
           </p>
         </div>
-        <CategoryBadge category={session.category} />
+        <div className="flex items-center gap-1.5">
+          <CategoryBadge category={session.category} />
+          <span aria-hidden="true" className="text-neutral-300 dark:text-neutral-600">
+            ›
+          </span>
+        </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-600 dark:text-neutral-400">
         <span>{formatMMSS(session.durationSeconds)}</span>
@@ -50,7 +83,7 @@ function HistoryRow({ session, templateName }) {
       {session.notes && (
         <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{session.notes}</p>
       )}
-    </div>
+    </button>
   )
 }
 
@@ -62,6 +95,8 @@ export default function Log() {
   const [filter, setFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  // null = closed, 'add' = new entry, a number = the id being edited.
+  const [editing, setEditing] = useState(null)
 
   const sessions = useLiveQuery(() => getLoggedSessions(), [])
   const templates = useLiveQuery(() => getWorkoutTemplates(), [])
@@ -76,9 +111,12 @@ export default function Log() {
   const allSessions = sessions ?? []
   const weekCount = countSince(allSessions, startOfWeek())
   const monthCount = countSince(allSessions, startOfMonth())
-  const streak = computeStreak(allSessions)
+  const streak = currentStreak(allSessions)
+  const editingSession =
+    typeof editing === 'number' ? allSessions.find((s) => s.id === editing) : null
 
   const visible = allSessions
+    // A rest day has no category, so a category filter is a workout filter.
     .filter((s) => filter === 'all' || s.category === filter)
     .filter((s) => !dateFrom || localDayKey(s.date) >= dateFrom)
     .filter((s) => !dateTo || localDayKey(s.date) <= dateTo)
@@ -86,7 +124,22 @@ export default function Log() {
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <h1 className="text-xl font-semibold">Log</h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold">Log</h1>
+        <button type="button" className={secondaryButtonClass} onClick={() => setEditing('add')}>
+          Add entry
+        </button>
+      </div>
+
+      {(editing === 'add' || editingSession) && (
+        <LogEntryForm
+          mode={editing === 'add' ? 'add' : 'edit'}
+          session={editingSession ?? undefined}
+          sessions={allSessions}
+          onSaved={() => setEditing(null)}
+          onDiscard={() => setEditing(null)}
+        />
+      )}
 
       <SyncControls />
 
@@ -152,13 +205,20 @@ export default function Log() {
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          {visible.map((session) => (
-            <HistoryRow
-              key={session.id}
-              session={session}
-              templateName={session.templateId ? templatesById.get(session.templateId)?.name : null}
-            />
-          ))}
+          {visible.map((session) =>
+            isRestDay(session) ? (
+              <RestRow key={session.id} session={session} onEdit={() => setEditing(session.id)} />
+            ) : (
+              <HistoryRow
+                key={session.id}
+                session={session}
+                templateName={
+                  session.templateId ? templatesById.get(session.templateId)?.name : null
+                }
+                onEdit={() => setEditing(session.id)}
+              />
+            ),
+          )}
         </div>
       )}
     </div>

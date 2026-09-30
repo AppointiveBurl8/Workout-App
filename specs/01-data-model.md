@@ -132,15 +132,26 @@ reconciled to the current `sets` count. `top_back_off`/`ramp` don't use
 ```
 {
   id: number,
+  type: 'workout'|'rest',     // a missing type means 'workout' - see below
   date: string,               // ISO
   templateId: number|null,    // null if this was an on-the-fly session
-  category: 'kettlebell'|'mobility'|'stretching',
-  durationSeconds: number,
+  category: 'kettlebell'|'mobility'|'stretching'|null,  // null on a rest day
+  durationSeconds: number,    // 0 on a rest day
   setsCompleted: number|null, // relevant for open_work sessions
   rpe: number|null,           // 1-10
   notes?: string,
 }
 ```
+
+A **rest day** (`type: 'rest'`) is a deliberate day off, not training. It carries
+a date and optional notes and nothing else: no category, no duration, no sets, no
+RPE. It **bridges a streak without adding to it**, and counts towards no other
+stat - see `specs/07-log.md` for the full rule.
+
+Rows written before v7 have no `type` at all, and every one of them was a
+workout. `normalizeLoggedSession()` in `src/lib/loggedSession.js` maps anything
+that isn't explicitly `'rest'` to `'workout'`, and runs on both external entry
+points - a restored backup file and a cloud pull - via `importAllData()`.
 
 ## Settings
 
@@ -207,11 +218,19 @@ the session object's layout changes, and expect that cost.
   to Open Work, not per-exercise. Existing templates carry over their first
   exercise's v5 scheme (if any) as the new workout-wide default, then drop the
   array.
+- **v7**: added `LoggedSession.type` (`'workout'|'rest'`), backfilled `'workout'`
+  on every existing row - which is what they all were. Indexes unchanged: rest
+  days are filtered in memory, and there are never enough logged sessions for
+  that to matter. No index on `type` for the same reason.
 
 ## Changelog
 
 Schema changes are in "Migration history" above. This section records corrections
 to *this document* where it had drifted from the code.
+
+- **Added** - `LoggedSession.type` and the rest-day shape (v7). The rules about
+  what a rest day does to a streak and to the stats live in `specs/07-log.md`
+  rather than here; this file describes the field.
 
 - **Corrected** - the `sideMode` prose for both `IntervalConfig` and
   `PailsRailsConfig` still described the pre-circuit behavior: a Left/Right side

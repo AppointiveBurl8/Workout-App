@@ -1,7 +1,7 @@
 # Workout Tracker
 
-**Last updated:** 2026-09-30 · code state describes this branch through the PWA
-commit; spec accuracy re-verified at `58cff65` and the fixes that
+**Last updated:** 2026-09-30 · code state describes this branch through the
+log-editing commit; spec accuracy re-verified at `58cff65` and the fixes that
 followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
@@ -16,11 +16,12 @@ timer), **Log** (history + stats).
 | | |
 |---|---|
 | Stack | React 19, Vite 8, Tailwind 4, react-router-dom 7 |
-| Storage | Dexie 4 (IndexedDB), schema v6 — the source of truth, works offline |
+| Storage | Dexie 4 (IndexedDB), schema v7 — the source of truth, works offline |
 | Optional sync | Firebase 12 (Firestore + Google auth), whole-blob per user |
 | Deploy | GitHub Pages via Actions, `base: '/Workout-App/'` |
 | Live URL | https://appointiveburl8.github.io/Workout-App/ |
 | Lint | oxlint (`npx oxlint src`) |
+| Tests | vitest (`npm test`) — pure logic only |
 
 **Installable PWA** as of the PWA commit: `public/manifest.webmanifest`,
 generated icons in `public/icons/`, and a hand-written `public/sw.js` (no
@@ -46,7 +47,7 @@ history. Export a backup or sync before installing.
 
 ## 3. Data model (as implemented)
 
-Dexie database `WorkoutTrackerDB`, defined in `src/db.js`. **Schema version 6.**
+Dexie database `WorkoutTrackerDB`, defined in `src/db.js`. **Schema version 7.**
 
 ### Indexes (v6 `stores`)
 
@@ -100,9 +101,16 @@ workout, never per exercise.
 ### LoggedSession
 
 ```js
-{ id, date /* ISO */, templateId|null, category, durationSeconds,
-  setsCompleted|null /* open_work only */, rpe|null /* 1-10 */, notes }
+{ id, type: 'workout'|'rest', date /* ISO */, templateId|null, category,
+  durationSeconds, setsCompleted|null /* open_work only */, rpe|null /* 1-10 */, notes }
 ```
+
+A **rest day** (`type: 'rest'`) has a date and optional notes and nothing else —
+`category: null`, `durationSeconds: 0`. It **bridges a streak without adding to
+it** and counts towards no other stat. A row with no `type` is a workout (every
+pre-v7 row); `normalizeLoggedSession()` in `src/lib/loggedSession.js` enforces
+that on both external entry points, backup import and cloud pull, via
+`importAllData()`. See `specs/07-log.md`.
 
 ### Settings (key/value, `db.settings`)
 
@@ -121,6 +129,7 @@ workout, never per exercise.
 | 4 | Added `intervalConfig.sideMode`; replaced `pailsRailsConfig.side` with constant `sideMode:'unilateral'` |
 | 5 | Dropped `Exercise.repsLabel`; added `WorkoutTemplate.setsReps[]` (one per exercise slot) |
 | 6 | Replaced that array with a single `openWorkConfig.setsReps`; carries over the first exercise's v5 scheme |
+| 7 | Added `LoggedSession.type`, backfilled `'workout'` on every existing row |
 
 ## 4. Features — status table
 
@@ -142,7 +151,7 @@ workout, never per exercise.
 | Phase colors | Done | `sessionEngine.js` (`*_PHASE_COLORS`) |
 | Sets × Reps plan + live set tracking | Done | `src/lib/setsReps.js`, `SetsRepsEditor.jsx`, `OpenWorkSession.jsx` |
 | Log: stats row, category filter, date range, history | Done | `src/pages/Log.jsx`, `src/lib/dateStats.js` |
-| Log entry form (after a workout only) | Partial | `src/components/log/LogEntryForm.jsx` — see §7 |
+| Log entry form (post-workout, add, edit) | Done | `src/components/log/LogEntryForm.jsx` |
 | Backup export / import (JSON file) | Done | `src/components/log/BackupControls.jsx` |
 | Cloud sync (Google sign-in, whole-blob) | Done, popup unverified | `src/lib/cloudSync.js`, `cloudSyncStore.jsx`, `components/log/SyncControls.jsx` |
 | Audio cues + mute toggle | Done, unverified on iPhone | `src/lib/audioCues.js`, `tracker/MuteToggle.jsx` |
@@ -152,8 +161,8 @@ workout, never per exercise.
 | Offline app shell (service worker) | Done | `public/sw.js`, registered in `src/main.jsx` |
 | Persistent-storage request | Done | `src/main.jsx` (`navigator.storage.persist()`) |
 | Screen wake lock | Done, unverified on iPhone | `src/lib/useWakeLock.js`, held by `activeSessionStore.jsx` |
-| Edit / delete a logged session | **Not started** (UI) | db helpers exist, unused — see §7 |
-| Rest-day logging | **Not started** | — |
+| Edit / delete a logged session | Done | `LogEntryForm.jsx` (edit mode, two-step delete), `Log.jsx` |
+| Rest-day logging | Done | `src/lib/loggedSession.js`, `LogEntryForm.jsx` |
 
 ## 5. Locked design decisions
 
@@ -284,11 +293,15 @@ unless the template is saved separately. A live "Estimated total" recalculates a
 fields change (Interval and Pails/Rails only; Open Work has a fixed target).
 
 **Q: Is there any way to log a rest day, or edit/delete a logged session?**
-**No to all three.** `LogEntryForm` renders **only** when arriving from the
-Tracker (`location.state?.source === 'tracker-end'`) — there is no "add entry"
-button, so no manual or rest-day logging. The history list renders no per-session
-controls. `updateLoggedSession()` and `deleteLoggedSession()` **exist in
-`src/db.js` but are called from nowhere** — dead code awaiting UI.
+**Yes to all three**, as of the log-editing commit. An **Add entry** button on the
+Log opens `LogEntryForm` in `add` mode, with a Workout / Rest day toggle; every
+history row is a 44px button opening the same form in `edit` mode, which carries
+a two-step delete ("Tap again to delete", four-second window, no undo).
+`updateLoggedSession()` / `deleteLoggedSession()` are no longer dead — they're
+what edit and delete call, and going through Dexie means the cloud-sync change
+hooks fire on all three operations (verified).
+A **rest day** bridges a streak without adding to it and counts towards nothing
+else. Full rules in `specs/07-log.md`.
 
 **Q: Is there a unilateral option for exercises that aren't left/right?**
 **Not per exercise.** Side is a workout-level setting, and `sideMode` means three
@@ -305,8 +318,9 @@ The three sharing a name is a readability trap for anyone new to the code.
 
 - **Bundle size:** 940 KB raw / 282 KB gzipped, Firebase being most of it. Not
   code-split. Noted as open in `specs/05-cloud-sync.md`.
-- **No tests in the repo.** All verification this session ran from Playwright
-  scripts in a scratch directory, which were not committed.
+- **Playwright verification is not committed.** The end-to-end runs live in a
+  scratch directory. `npm test` covers pure logic only — the date/streak helpers
+  and the logged-session normalizer — not components or the database.
 - **Cloud sync is last-write-wins** on the whole dataset, with a conflict prompt.
   By design, documented.
 
@@ -413,11 +427,12 @@ src/
     cloudSyncStore.jsx         Provider: auth watch, debounced push, conflict state
     firebase.js                App/auth/firestore singletons, emulator wiring
     firebaseConfig.js          Public web config + emulator toggle
-    dateStats.js               Week/month counts, streak, local day keys
+    dateStats.js               Week/month counts, streak, local day keys, local-noon dates
     sessionConfig.js           Template → session config resolution
     exerciseDraft.js           Exercise form draft shape
     formatDuration.js          formatMMSS
     categories.js              Category labels and colors
+    loggedSession.js           Rest-day shape + the pre-v7 `type` normalizer
     ui.js                      Shared button/input class strings
     useWallClockTicker.js      The one timer that advances session state
     useWakeLock.js             Screen wake lock held for the life of a session
@@ -433,6 +448,9 @@ specs/
   04-tracker.md                Timer modes, circuit/side rules, audio, wake lock, wall-clock timing
   05-cloud-sync.md             Sync design, reconcile table, known issues
   06-pwa.md                    Manifest, icons, caching strategy, iOS caveats
+  07-log.md                    Entry types, rest-day/streak rules, the three form modes
+vitest.config.js               Test runner config (src/**/*.test.js, node env)
+src/test-setup.js              Pins TZ to America/New_York so the DST tests mean something
 firestore.rules                users/{uid} readable/writable only by that uid
 firebase.json                  Emulator ports + rules path
 .github/workflows/deploy.yml   Build + deploy to Pages
@@ -460,7 +478,11 @@ firebase.json                  Emulator ports + rules path
   in the same commit.** Updating the section you were reading is not enough: the
   side/round rework (`b5dab80`, `b17d84f`, `767b106`) left four stale statements
   behind in two files, including one where `04-tracker.md` contradicted itself.
-- **Before committing:** `npx oxlint src` and `npm run build`. Both must be clean.
+- **Pure logic gets a test; components don't.** `npm test` (vitest) covers
+  `src/lib/*` only — no UI, no Dexie. A test that needs a browser or a database
+  belongs in a Playwright script instead.
+- **Before committing:** `npx oxlint src`, `npm run build` and `npm test`. All
+  three must be clean.
   Two `react(only-export-components)` fast-refresh warnings on the two context
   files are pre-existing and expected.
 - **Run locally:** `npm install` then `npm run dev` → http://localhost:5173/Workout-App/

@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { normalizeLoggedSession } from './lib/loggedSession'
 import { defaultSetsRepsScheme } from './lib/setsReps'
 
 export const EXERCISE_CATEGORIES = ['kettlebell', 'mobility', 'stretching']
@@ -261,6 +262,25 @@ db.version(6)
       })
   })
 
+// A logged day is either a workout or a rest day. Rest days exist to bridge a
+// streak across a deliberate day off, so they carry no duration, category or
+// sets - see specs/07-log.md. Existing rows are all workouts.
+db.version(7)
+  .stores({
+    exercises: '++id, name, *categories',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade((tx) =>
+    tx
+      .table('loggedSessions')
+      .toCollection()
+      .modify((session) => {
+        if (session.type === undefined) session.type = 'workout'
+      }),
+  )
+
 // ---------------- Exercise ----------------
 
 export async function addExercise(exercise) {
@@ -344,6 +364,7 @@ export async function duplicateWorkoutTemplate(id) {
 
 export async function addLoggedSession(session) {
   return db.loggedSessions.add({
+    type: 'workout',
     date: new Date().toISOString(),
     templateId: null,
     setsCompleted: null,
@@ -354,7 +375,8 @@ export async function addLoggedSession(session) {
 }
 
 export async function getLoggedSessions() {
-  return db.loggedSessions.toArray()
+  const sessions = await db.loggedSessions.toArray()
+  return sessions.map(normalizeLoggedSession)
 }
 
 export async function getLoggedSession(id) {
@@ -399,6 +421,8 @@ export async function importAllData({ exercises, templates, sessions }) {
     await db.loggedSessions.clear()
     if (exercises.length) await db.exercises.bulkAdd(exercises)
     if (templates.length) await db.workoutTemplates.bulkAdd(templates)
-    if (sessions.length) await db.loggedSessions.bulkAdd(sessions)
+    // Both external entry points - a backup file and a cloud pull - land here, so
+    // this is the one place that has to cope with rows written before `type`.
+    if (sessions.length) await db.loggedSessions.bulkAdd(sessions.map(normalizeLoggedSession))
   })
 }
