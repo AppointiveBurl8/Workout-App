@@ -29,6 +29,10 @@ completes) is pure and framework-free, in `src/lib/sessionEngine.js`, driven by 
 store's reducer rather than a per-component `useReducer` - which is what lets it
 survive the underlying Tracker page unmounting and remounting.
 
+What drives that reducer is a single wall-clock ticker in the same provider -
+there is no other timer anywhere in the app that advances session state. See
+"Wall-clock timing" below.
+
 ## Timer modes
 
 ### Open Work
@@ -289,8 +293,76 @@ Pressing the side button still locks the phone, and JS is suspended while it's
 locked - see "Wall-clock timing" for what happens to the session's elapsed time
 across that.
 
+## Wall-clock timing
+
+Session time is measured against the wall clock, not counted in callbacks.
+`src/lib/useWallClockTicker.js` polls four times a second, works out how many
+whole seconds have passed since it last reported (`Date.now()`), and reports
+that count. It also flushes immediately on `visibilitychange`, which is the one
+moment the debt is certain to be large.
+
+Counting callbacks under-counts, badly. A hidden tab has its timers throttled to
+roughly once a minute, and a locked phone stops running JS altogether - so a
+workout left alone for two minutes would come back two minutes behind, silently.
+Measuring elapsed time instead means the missed seconds are still there to be
+claimed on the way back.
+
+The reducer takes the debt as `TICK_N` and **replays it one second at a time
+through the ordinary `TICK` path**, rather than adding it to a counter:
+
+```js
+case 'TICK_N': {
+  const n = Math.min(action.n, MAX_CATCHUP_SECONDS)
+  let next = state
+  for (let i = 0; i < n; i++) {
+    if (!isTicking(next)) break
+    next = reducer(next, { type: 'TICK' })
+  }
+  return next
+}
+```
+
+Replaying is what keeps every phase boundary, round change, side change and
+lead-in intact: a catch-up that spans three exercises ends exactly where a
+foreground run of the same length would have. The `isTicking` guard is what
+stops it overshooting - the moment a tick completes the session or trips Open
+Work's `sessionTargetSeconds` hard stop, `status` leaves `'active'` and the loop
+breaks, so a two-hundred-second jump into a sixty-second Open Work session still
+logs sixty. `MAX_CATCHUP_SECONDS` (four hours) caps the rest: past that the
+workout was abandoned, not backgrounded.
+
+Paused time is never banked. The ticker's effect tears down when `running` goes
+false and re-arms with a fresh baseline on resume, so the gap is discarded
+rather than owed.
+
+**Cues don't burst.** One `TICK_N` is one React commit, and every cue in the
+Tracker fires from comparing previous to next state in an effect
+(`usePhaseTransitionCues`, the round watcher in `SteppedSession`, the phase
+watcher in `OpenWorkSession`) rather than from counting ticks. So a catch-up
+across several phases plays at most one cue - the one for the state it landed
+in - not one per second skipped.
+
+**A rehydrate does not catch up.** The mirrored session carries no timestamp,
+deliberately: on reload the ticker starts from `Date.now()` with nothing owed,
+so a workout resumes from its last mirrored state (up to one 3-second mirror
+interval behind) rather than being fast-forwarded to now. Only backgrounding
+within a live page is compensated. This is also why `SESSION_SHAPE` didn't need
+a bump for any of this - the stored shape is unchanged.
+
+**What it can't fix:** on a locked iPhone, JS and audio are both suspended.
+Elapsed time and position are correct the moment you unlock, but cues that would
+have sounded while it was locked are gone - they were never scheduled. A wake
+lock (above) avoids the automatic case; the side button is still the side
+button.
+
 ## Known Issues / Changelog
 
+- **Fixed** - session time no longer under-counts when the phone is locked or
+  the tab is backgrounded. Ticks are measured against the wall clock and replayed
+  through the existing single-tick path, so a gap lands where a foreground run
+  would have - see "Wall-clock timing" above. The dead `src/lib/useInterval.js`
+  went with it; nothing had imported it since the session store took over
+  timing, and leaving a second timing hook next to the new one was a trap.
 - **Added** - the screen is held awake for the whole of an active session, with a
   "Screen on" indicator in the Tracker header - see "Screen wake lock" above.
   Previously nothing in the app touched `navigator.wakeLock` and the phone slept

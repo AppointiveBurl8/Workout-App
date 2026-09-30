@@ -1,7 +1,7 @@
 # Workout Tracker
 
-**Last updated:** 2026-09-30 · code state describes this branch through the screen
-wake lock commit; spec accuracy re-verified at `58cff65` and the fixes that
+**Last updated:** 2026-09-30 · code state describes this branch through the
+wall-clock timing commit; spec accuracy re-verified at `58cff65` and the fixes that
 followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
@@ -132,6 +132,7 @@ workout, never per exercise.
 | Tracker — Interval | Done | `src/components/tracker/IntervalStep.jsx` + `SteppedSession.jsx` |
 | Tracker — Pails/Rails | Done | `src/components/tracker/PailsRailsStep.jsx` + `SteppedSession.jsx` |
 | Phase machines (pure) | Done | `src/lib/sessionEngine.js` |
+| Wall-clock timing (backgrounded time recovered) | Done, unverified on iPhone | `src/lib/useWallClockTicker.js`, `TICK_N` in `activeSessionStore.jsx` |
 | Session state survives tab switch + reload | Done | `src/lib/activeSessionStore.jsx` |
 | Lead-in "get into position" countdown (10s) | Done | `SteppedSession.jsx`, `sessionEngine.js` (`LEAD_IN_SECONDS`) |
 | Phase colors | Done | `sessionEngine.js` (`*_PHASE_COLORS`) |
@@ -244,8 +245,15 @@ corrupt the first phase if that UI ever changed.
 stored by a build with a different shape is **discarded** on hydrate rather than
 half-restored. So a workout in progress across a deploy is lost by design.
 *Caveat:* up to 3s of progress can be lost on a hard kill (the persist interval).
-*Not verified:* real iOS backgrounding — timers throttle when a page is hidden and
-nothing compensates by wall-clock on resume, so a long background may under-count.
+*Backgrounding no longer under-counts.* Ticks are measured against `Date.now()`
+by `useWallClockTicker` and replayed through the existing single-tick path as
+`TICK_N`, so a throttled or suspended page lands exactly where a foreground run
+would have. A rehydrate deliberately does **not** catch up — the mirrored blob
+carries no timestamp, so a reload resumes from the mirror rather than
+fast-forwarding to now.
+*Not verified:* real iOS backgrounding. Verified in Chromium against Playwright's
+clock API (`install` + `pauseAt` to freeze it; `fastForward` is the documented
+stand-in for a suspended tab), not on a device.
 
 **Q: Is screen wake-lock implemented?** **Yes**, as of the wake-lock commit.
 `useWakeLock()` is called by `ActiveSessionProvider` (not the Tracker page, which
@@ -327,7 +335,7 @@ in the build sandbox. All four are code-complete but unproven.
 | Audio unlock + playback | **Untested on device.** Verified only in headless Chromium under `--autoplay-policy=document-user-activation-required` | Does the Log tab's **Sound check** report `running`, and do you *hear* the beep? Running + silent ⇒ the ring/silent switch is muting Web Audio, which no app code can override |
 | Wake lock | **Untested on device.** Verified in headless Chromium against a stubbed `navigator.wakeLock`, since the real one refuses there | Start a workout, leave the phone alone for 2 minutes: the screen stays on and the header shows "Screen on" |
 | PWA safe-area | **Untested.** `env(safe-area-inset-bottom)` is set on the bottom nav and `viewport-fit=cover` in `index.html` | Bottom nav clearing the home indicator on a notched iPhone |
-| Backgrounding | **Untested.** Store rehydrates and the audio context resumes on `visibilitychange` | Whether elapsed time stays accurate after a few minutes backgrounded — timers throttle and nothing reconciles against wall-clock |
+| Backgrounding | **Untested on device.** Wall-clock ticker verified in Chromium under Playwright's clock API | Lock the phone mid-Interval for 60s and unlock: phase and elapsed should have moved ~60s. Cues that fell during the lock are gone for good — iOS suspends audio too |
 | Google sign-in popup | **Untested.** Sandbox blocks `apis.google.com` | Sign-in completing on Safari; `appointiveburl8.github.io` must be in Firebase's Authorized domains |
 
 ## 9. Pending decisions
@@ -402,7 +410,7 @@ src/
     formatDuration.js          formatMMSS
     categories.js              Category labels and colors
     ui.js                      Shared button/input class strings
-    useInterval.js             Interval hook (currently unused)
+    useWallClockTicker.js      The one timer that advances session state
     useWakeLock.js             Screen wake lock held for the life of a session
 specs/
   01-data-model.md             Schema + migrations + settings keys; Changelog for doc corrections
@@ -422,6 +430,12 @@ firebase.json                  Emulator ports + rules path
 - **Pure timer/phase logic** lives in `src/lib/sessionEngine.js`, free of React so
   it can be reasoned about independently of rendering. Same principle for
   `reorder.js` and `setsReps.js`.
+- **One timer advances session state**, the wall-clock ticker in
+  `activeSessionStore.jsx`. Don't add a `setInterval` that moves the clock
+  forward anywhere else — it would count callbacks, which under-counts the moment
+  the page is backgrounded, and it would sidestep the `TICK_N` catch-up. Cues
+  must stay derived from comparing previous to next state, never from tick
+  counts, or a catch-up turns into a burst of beeps.
 - **Specs are part of the change, not a follow-up.** Read the relevant file in
   `specs/` before touching that area and update it in the same commit.
 - **Before committing any change to tracker behavior, search `/specs` for every

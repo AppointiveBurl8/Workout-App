@@ -17,6 +17,7 @@ import {
   tickStepState,
 } from './sessionEngine'
 import { useWakeLock } from './useWakeLock'
+import { useWallClockTicker } from './useWallClockTicker'
 
 const STORAGE_KEY = 'activeSession'
 
@@ -26,7 +27,16 @@ const SESSION_SHAPE = 3
 const PERSIST_INTERVAL_MS = 3000
 const IDLE_SESSION = { status: 'idle' }
 
+/** Ceiling on how much backgrounded time a returning page will replay. Past a
+ * few hours the workout was abandoned, not backgrounded. */
+const MAX_CATCHUP_SECONDS = 4 * 60 * 60
+
 const ActiveSessionContext = createContext(null)
+
+/** Whether a TICK would do anything. Also what stops a catch-up overshooting. */
+function isTicking(state) {
+  return state.status === 'active' && state.started && !state.paused
+}
 
 function configFor(timerMode, config) {
   if (timerMode === 'interval') return config.intervalConfig
@@ -130,8 +140,24 @@ function reducer(state, action) {
       if (state.status !== 'active' || !state.started) return state
       return { ...state, paused: !state.paused }
 
+    // Several seconds owed at once, because the page was backgrounded, throttled,
+    // or the phone was locked. Replayed one at a time through the single-tick path
+    // below rather than jumping the clock, so every phase, round and side change -
+    // and Open Work's hard stop - lands exactly where a foreground run would have
+    // put it. The loop stops the moment the session isn't tickable any more, which
+    // is what keeps a long catch-up from running past the end of the workout.
+    case 'TICK_N': {
+      const n = Math.min(action.n, MAX_CATCHUP_SECONDS)
+      let next = state
+      for (let i = 0; i < n; i++) {
+        if (!isTicking(next)) break
+        next = reducer(next, { type: 'TICK' })
+      }
+      return next
+    }
+
     case 'TICK': {
-      if (state.status !== 'active' || !state.started || state.paused) return state
+      if (!isTicking(state)) return state
 
       if (state.timerMode === 'open_work') {
         const openWork = tickOpenWorkState(state.openWork, state.config.openWorkConfig)
@@ -319,11 +345,12 @@ export function ActiveSessionProvider({ children }) {
     if (session.status !== 'active') setSetting(STORAGE_KEY, null)
   }, [hydrated, session.status])
 
-  useEffect(() => {
-    if (session.status !== 'active' || !session.started || session.paused) return
-    const id = setInterval(() => dispatch({ type: 'TICK' }), 1000)
-    return () => clearInterval(id)
-  }, [session.status, session.started, session.paused, dispatch])
+  // Measured against the wall clock rather than counted, so time the page spent
+  // backgrounded or throttled is recovered instead of lost. Rehydration from
+  // IndexedDB deliberately does not catch up: the ticker starts fresh, so a
+  // reload resumes from the last mirrored state rather than from when the
+  // session began.
+  useWallClockTicker((n) => dispatch({ type: 'TICK_N', n }), isTicking(session))
 
   // Keeps the screen awake for the whole session, paused and between-exercise
   // countdowns included - held here rather than in the Tracker page so switching
