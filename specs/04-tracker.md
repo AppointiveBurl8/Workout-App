@@ -164,15 +164,22 @@ Previous / Pause-Resume / Skip / Next, operating on the exercise sequence:
   Neither wraps - Previous is a no-op on the first exercise, Next a no-op on the
   last.
 - Stepping to a new exercise always resets that exercise's phase machine to its
-  configured starting value (first phase, round 1, full duration) - it never
-  inherits elapsed time or round progress from the exercise being left.
+  configured starting value (first phase, full duration) - it never inherits
+  elapsed time from the exercise being left. The round is **not** part of that
+  reset: it lives on the session position, not in the phase machine, so it carries
+  across an exercise step and changes only where the circuit says it should (see
+  "Rounds are circuits, a side at a time").
 - **Skip** advances the *current* phase within the current exercise immediately
   (as if its timer had hit zero), without changing which exercise is active.
 - Between exercises (when a step completes on its own, not via Next), an "Up Next"
   countdown screen shows before the next exercise starts; "Skip wait, start now"
-  jumps straight in. On a unilateral workout the handover from the last exercise
-  of the left pass to the first of the right pass is the same screen, headed
-  "Switch Sides".
+  jumps straight in. **Not on a same-side Interval handover**, though: an Interval
+  exercise always ends on its configured Rest and that Rest *is* the gap, so a
+  countdown after it would mean resting twice over - see "Interval" above (lines
+  63-66) for the reasoning. Pails/Rails gets the countdown on every handover, and
+  a side change always gets one whichever mode it is, headed "Switch Sides" and
+  naming the side being moved to. `needsTransitionCountdown()` in
+  `sessionEngine.js` is the single place that decides.
 - Next and Previous step along the full session sequence - the exercise list, once
   per side, once per round. So Next off the last exercise of the left pass lands on
   the first exercise of the right pass, and off the end of the right pass onto the
@@ -253,6 +260,17 @@ audible means the block is outside the app.
 
 ## Known Issues / Changelog
 
+- **Corrected (doc only)** - the Shared transport section still described two
+  things the circuit rework had changed underneath it, and contradicted this
+  file's own Interval section while doing it. Stepping to a new exercise was said
+  to reset the machine to "round 1" and to never inherit round progress - the
+  round left the phase machine for the session position in `b17d84f`, so it now
+  carries across a step by design. And the "Up Next" countdown was stated
+  unconditionally, when `needsTransitionCountdown()` (also `b17d84f`) skips it on
+  a same-side Interval handover. Both bullets now match the code. `b5dab80` and
+  `767b106` are the other two commits in that rework - see the two **Changed**
+  entries below, which this correction brings the transport section into line
+  with. The same drift in `specs/01-data-model.md` is corrected there.
 - **Changed** - exercises in a workout are dragged into order by a handle instead
   of nudged one position at a time by up/down buttons - see "Reordering a
   workout's exercises" above. Same component in the Template Editor and the

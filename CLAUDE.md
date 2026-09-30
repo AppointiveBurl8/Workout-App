@@ -397,6 +397,11 @@ firebase.json                  Emulator ports + rules path
   `reorder.js` and `setsReps.js`.
 - **Specs are part of the change, not a follow-up.** Read the relevant file in
   `specs/` before touching that area and update it in the same commit.
+- **Before committing any change to tracker behavior, search `/specs` for every
+  term the change affects (e.g. side, round, phase, countdown) and update each hit
+  in the same commit.** Updating the section you were reading is not enough: the
+  side/round rework (`b5dab80`, `b17d84f`, `767b106`) left four stale statements
+  behind in two files, including one where `04-tracker.md` contradicted itself.
 - **Before committing:** `npx oxlint src` and `npm run build`. Both must be clean.
   Two `react(only-export-components)` fast-refresh warnings on the two context
   files are pre-existing and expected.

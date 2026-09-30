@@ -48,8 +48,11 @@ run as intervals one day and open work the next.
 ```
 
 `sideMode` is confirmable on the Start Workout screen, same pattern as Open Work's
-`sideMode`. `unilateral` inserts a side step (Left, then Right) within each round
-before advancing to the next round - see `specs/04-tracker.md`.
+`sideMode`. `unilateral` makes the side a **session-level pass**, not a phase
+inside any exercise: the session nests **round -> side -> exercise**, so a round
+runs the whole exercise list on the left, then the whole list again on the right,
+and the next round starts over on the left. The phase machine carries no side at
+all, and there is no `side_switch` phase - see `specs/04-tracker.md`.
 
 ### PailsRailsConfig
 
@@ -66,7 +69,10 @@ before advancing to the next round - see `specs/04-tracker.md`.
 
 `sideMode` is not user-editable for this mode; it's stored for symmetry with
 `IntervalConfig` but the Start Workout / template editor UI doesn't offer a picker
-for it. Every round runs Left, then Right.
+for it. Each round runs the **full exercise list on the left, then the full list
+again on the right** - the side changes between those two passes, never between
+one exercise and the next within a pass, and never inside a single exercise. Same
+`round -> side -> exercise` nesting as unilateral Interval, above.
 
 ### OpenWorkConfig
 
@@ -176,3 +182,19 @@ payload, since each device tracks its own position independently.
   to Open Work, not per-exercise. Existing templates carry over their first
   exercise's v5 scheme (if any) as the new workout-wide default, then drop the
   array.
+
+## Changelog
+
+Schema changes are in "Migration history" above. This section records corrections
+to *this document* where it had drifted from the code.
+
+- **Corrected** - the `sideMode` prose for both `IntervalConfig` and
+  `PailsRailsConfig` still described the pre-circuit behavior: a Left/Right side
+  step inserted inside each round. Three commits had moved past it without this
+  file being updated - `b5dab80` (side lifted out of the per-exercise phase
+  machine onto the session, `side_switch` phase deleted), `b17d84f` (a round
+  became one pass through every exercise, and the round moved onto the session
+  too), and `767b106` (nesting settled at round -> side -> exercise). Both
+  sections now state the current nesting. No schema change was involved in any of
+  the three - `intervalConfig.sideMode` and `pailsRailsConfig.sideMode` hold the
+  same values they did at v4; only what the Tracker does with them changed.
