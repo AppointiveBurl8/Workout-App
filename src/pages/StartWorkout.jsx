@@ -8,19 +8,38 @@ import { unlockAudio } from '../lib/audioCues'
 import { useActiveSession } from '../lib/activeSessionStore'
 import { formatMMSS } from '../lib/formatDuration'
 import { majorityCategory, resolveSessionConfig } from '../lib/sessionConfig'
-import { computeStepSessionDurationSeconds } from '../lib/sessionEngine'
+import {
+  computeStepSessionDurationSeconds,
+  isSidedExercise,
+  sessionSideMode,
+} from '../lib/sessionEngine'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 
 /** Total estimated session length, live as chips change - null for Open Work, which
  * runs to its own fixed session-target duration instead. */
-function TotalDurationSummary({ timerMode, config, exerciseCount }) {
+function TotalDurationSummary({ timerMode, config, exercises }) {
   if (timerMode === 'open_work') return null
   const modeConfig = timerMode === 'interval' ? config.intervalConfig : config.pailsRailsConfig
-  const totalSeconds = computeStepSessionDurationSeconds(timerMode, modeConfig, exerciseCount)
+  const totalSeconds = computeStepSessionDurationSeconds(timerMode, modeConfig, exercises)
+  const unsided =
+    sessionSideMode(timerMode, modeConfig) === 'unilateral'
+      ? exercises.filter((e) => !isSidedExercise(e)).length
+      : 0
   return (
-    <p className="text-sm text-neutral-500 dark:text-neutral-400">
-      Estimated total: <span className="font-medium text-neutral-700 dark:text-neutral-300">{formatMMSS(totalSeconds)}</span>
-    </p>
+    <div className="text-sm text-neutral-500 dark:text-neutral-400">
+      <p>
+        Estimated total:{' '}
+        <span className="font-medium text-neutral-700 dark:text-neutral-300">
+          {formatMMSS(totalSeconds)}
+        </span>
+      </p>
+      {/* Otherwise the estimate looks wrong against a doubled exercise count. */}
+      {unsided > 0 && (
+        <p className="mt-0.5">
+          {unsided} symmetrical exercise{unsided === 1 ? ' runs' : 's run'} once per round.
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -57,7 +76,7 @@ function StartWorkoutForm({ template, steps, workoutName, category }) {
       templateId: template?.id ?? null,
       workoutName,
       category,
-      exerciseIds: steps.map((step) => step.id),
+      exercises: steps,
       timerMode,
       config: sessionConfig,
     })
@@ -107,7 +126,7 @@ function StartWorkoutForm({ template, steps, workoutName, category }) {
           />
         </div>
         <div className="mt-3">
-          <TotalDurationSummary timerMode={config.timerMode} config={config} exerciseCount={steps.length} />
+          <TotalDurationSummary timerMode={config.timerMode} config={config} exercises={steps} />
         </div>
       </div>
 

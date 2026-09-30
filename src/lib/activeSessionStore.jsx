@@ -4,13 +4,14 @@ import {
   LEAD_IN_SECONDS,
   TRANSITION_SECONDS,
   advanceSessionPosition,
+  buildPasses,
   endOpenWorkSet,
   initOpenWorkState,
   initSessionPosition,
   initStepState,
-  isUnilateral,
   needsTransitionCountdown,
   retreatSessionPosition,
+  sessionSideMode,
   skipStepState,
   stepPhaseConfigField,
   tickOpenWorkState,
@@ -23,7 +24,7 @@ const STORAGE_KEY = 'activeSession'
 
 /** Bumped when the stored session's shape changes in a way an older mirrored
  * copy can't be read as. A mismatch is dropped rather than half-restored. */
-const SESSION_SHAPE = 3
+const SESSION_SHAPE = 4
 const PERSIST_INTERVAL_MS = 3000
 const IDLE_SESSION = { status: 'idle' }
 
@@ -48,15 +49,24 @@ function freshStepState(state) {
   return initStepState(state.timerMode, configFor(state.timerMode, state.config))
 }
 
+/**
+ * The passes this session runs, from the exercise list captured when it started.
+ * Deliberately not a live lookup: editing an exercise's `sided` flag mid-session
+ * would otherwise reshape the circuit underneath a running workout.
+ */
+export function sessionPasses(state) {
+  const modeConfig = configFor(state.timerMode, state.config)
+  return buildPasses(state.exercises, sessionSideMode(state.timerMode, modeConfig))
+}
+
 function sessionPosition(state) {
   const modeConfig = configFor(state.timerMode, state.config)
   return {
-    currentIndex: state.currentIndex,
     round: state.round,
-    side: state.side,
-    exerciseCount: state.exerciseIds.length,
+    passIndex: state.passIndex,
+    indexInPass: state.indexInPass,
+    passes: sessionPasses(state),
     rounds: modeConfig.rounds,
-    unilateral: isUnilateral(state.timerMode, modeConfig),
   }
 }
 
@@ -64,9 +74,9 @@ function sessionPosition(state) {
 function atPosition(state, position) {
   const moved = {
     ...state,
-    currentIndex: position.currentIndex,
     round: position.round,
-    side: position.side,
+    passIndex: position.passIndex,
+    indexInPass: position.indexInPass,
   }
   return {
     ...moved,
@@ -88,7 +98,7 @@ function afterExercise(state, stepState, sessionElapsedSeconds) {
       completion: { durationSeconds: sessionElapsedSeconds, setsCompleted: null },
     }
   }
-  if (!needsTransitionCountdown(state.timerMode, state.side, next.side)) {
+  if (!needsTransitionCountdown(state.timerMode, state.passIndex, next.passIndex)) {
     return atPosition(base, next)
   }
   return { ...base, transitioning: true, transitionRemaining: TRANSITION_SECONDS, pendingPosition: next }
@@ -100,14 +110,16 @@ function reducer(state, action) {
       return action.session ?? state
 
     case 'START_SESSION': {
-      const { templateId, workoutName, category, exerciseIds, timerMode, config } = action
+      const { templateId, workoutName, category, exercises, timerMode, config } = action
       const base = {
         status: 'active',
         shape: SESSION_SHAPE,
         templateId: templateId ?? null,
         workoutName,
         category,
-        exerciseIds,
+        // Snapshotted, not looked up live: the `sided` flags here decide the
+        // circuit, and it must not change under a running workout.
+        exercises: exercises.map((exercise) => ({ id: exercise.id, sided: exercise.sided !== false })),
         timerMode,
         config,
         started: false,
@@ -117,7 +129,7 @@ function reducer(state, action) {
         transitionRemaining: TRANSITION_SECONDS,
         leadIn: false,
         leadInRemaining: LEAD_IN_SECONDS,
-        ...initSessionPosition(timerMode, configFor(timerMode, config)),
+        ...initSessionPosition(),
         pendingPosition: null,
         completion: null,
       }

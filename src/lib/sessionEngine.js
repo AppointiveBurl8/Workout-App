@@ -162,10 +162,23 @@ export function stepPhaseColors(timerMode, phase) {
  * decides what comes next. Both the round and the side therefore live on the
  * session, not inside any movement's machine.
  *
- * The nesting is round -> side -> exercise. A round covers both sides:
+ * The nesting is round -> pass -> exercise. On a unilateral workout a round
+ * covers both sides:
  *
  *   Round 1:  left (a b c), right (a b c)
  *   Round 2:  left (a b c), right (a b c)
+ *
+ * ...except that not every movement has two sides. An exercise with
+ * `sided: false` is symmetrical - a forward fold, a cat-cow - and running it
+ * twice is just doing it twice. Those run **once, in the left pass, at their
+ * list position**, and are skipped by the right pass. With a middle exercise
+ * unsided that reads:
+ *
+ *   Round 1:  left (a b c), right (a c)
+ *
+ * If nothing in the workout is sided there is one pass and no side labels at
+ * all. A bilateral Interval workout ignores the flag entirely - everything runs
+ * once either way.
  */
 export function isUnilateral(timerMode, config) {
   if (timerMode === 'pails_rails') return true
@@ -173,34 +186,76 @@ export function isUnilateral(timerMode, config) {
   return false
 }
 
-export function initSessionSide(timerMode, config) {
-  return isUnilateral(timerMode, config) ? 'left' : null
+export function sessionSideMode(timerMode, config) {
+  return isUnilateral(timerMode, config) ? 'unilateral' : 'bilateral'
 }
 
-export function initSessionPosition(timerMode, config) {
-  return { currentIndex: 0, round: 1, side: initSessionSide(timerMode, config) }
+/** An exercise is two-sided unless it explicitly says otherwise, so an old row
+ * with no flag at all keeps the behaviour it had before the flag existed. */
+export function isSidedExercise(exercise) {
+  return exercise?.sided !== false
+}
+
+/**
+ * Which side passes a session needs, and which exercise indices run in each.
+ * The single source of truth for sequencing - everything else derives from it.
+ */
+export function buildPasses(exercises, sideMode) {
+  const all = exercises.map((_, i) => i)
+  if (sideMode !== 'unilateral') return [{ side: null, indices: all }]
+  const sided = all.filter((i) => isSidedExercise(exercises[i]))
+  if (sided.length === 0) return [{ side: null, indices: all }]
+  return [
+    { side: 'left', indices: all },
+    { side: 'right', indices: sided },
+  ]
+}
+
+/** The side label an exercise shows during a pass. A symmetrical one shows none. */
+export function sideLabelFor(exercise, pass) {
+  return isSidedExercise(exercise) ? (pass?.side ?? null) : null
+}
+
+export function totalSessionSteps(passes, rounds) {
+  return passes.reduce((n, pass) => n + pass.indices.length, 0) * rounds
+}
+
+export function initSessionPosition() {
+  return { round: 1, passIndex: 0, indexInPass: 0 }
+}
+
+/** Turns a position into the concrete exercise, pass and side label it means. */
+export function resolvePosition(exercises, passes, position) {
+  const pass = passes[position.passIndex]
+  const exerciseIndex = pass?.indices[position.indexInPass]
+  const exercise = exercises[exerciseIndex]
+  return { exerciseIndex, exercise, pass, side: sideLabelFor(exercise, pass) }
 }
 
 /** Where the session goes once the current exercise's phase machine finishes. */
-export function advanceSessionPosition({ currentIndex, round, side, exerciseCount, rounds, unilateral }) {
-  if (currentIndex < exerciseCount - 1) {
-    return { currentIndex: currentIndex + 1, round, side, done: false }
+export function advanceSessionPosition({ round, passIndex, indexInPass, passes, rounds }) {
+  if (indexInPass < passes[passIndex].indices.length - 1) {
+    return { round, passIndex, indexInPass: indexInPass + 1, done: false }
   }
-  if (unilateral && side === 'left') {
-    return { currentIndex: 0, round, side: 'right', done: false }
+  if (passIndex < passes.length - 1) {
+    return { round, passIndex: passIndex + 1, indexInPass: 0, done: false }
   }
   if (round < rounds) {
-    return { currentIndex: 0, round: round + 1, side: unilateral ? 'left' : null, done: false }
+    return { round: round + 1, passIndex: 0, indexInPass: 0, done: false }
   }
-  return { currentIndex, round, side, done: true }
+  return { round, passIndex, indexInPass, done: true }
 }
 
 /** The mirror, for Previous. Null once there's nothing before the current spot. */
-export function retreatSessionPosition({ currentIndex, round, side, exerciseCount, unilateral }) {
-  if (currentIndex > 0) return { currentIndex: currentIndex - 1, round, side }
-  if (unilateral && side === 'right') return { currentIndex: exerciseCount - 1, round, side: 'left' }
+export function retreatSessionPosition({ round, passIndex, indexInPass, passes }) {
+  if (indexInPass > 0) return { round, passIndex, indexInPass: indexInPass - 1 }
+  if (passIndex > 0) {
+    const previous = passIndex - 1
+    return { round, passIndex: previous, indexInPass: passes[previous].indices.length - 1 }
+  }
   if (round > 1) {
-    return { currentIndex: exerciseCount - 1, round: round - 1, side: unilateral ? 'right' : null }
+    const last = passes.length - 1
+    return { round: round - 1, passIndex: last, indexInPass: passes[last].indices.length - 1 }
   }
   return null
 }
@@ -209,11 +264,11 @@ export function retreatSessionPosition({ currentIndex, round, side, exerciseCoun
  * Whether a handover needs its own countdown screen. Interval ends every exercise
  * on its configured Rest, which already _is_ the gap between movements - putting a
  * countdown after it would just be resting twice over. Pails/Rails ends on a hold
- * with nothing after it, so it needs one. A side change always gets one either
- * way: that's a physical reposition, not a rest.
+ * with nothing after it, so it needs one. Crossing a pass boundary always gets
+ * one either way: that's a physical reposition, not a rest.
  */
-export function needsTransitionCountdown(timerMode, fromSide, toSide) {
-  if (fromSide !== toSide) return true
+export function needsTransitionCountdown(timerMode, fromPassIndex, toPassIndex) {
+  if (fromPassIndex !== toPassIndex) return true
   return timerMode !== 'interval'
 }
 
@@ -225,18 +280,20 @@ export const SIDE_LABELS = { left: 'Left side', right: 'Right side' }
  * Estimated total session length, recalculated live as chips change. Only sums the
  * user-configurable phase durations - the brief fixed switch/side-switch cues are
  * left out, same as they're excluded from the in-session phase-total progress bar.
+ *
+ * Counts the steps the session will actually generate, via `buildPasses`, rather
+ * than multiplying by two for a unilateral workout: a symmetrical exercise runs
+ * once, and the estimate has to agree with the run or one of them is lying.
  */
-export function computeStepSessionDurationSeconds(timerMode, config, exerciseCount) {
+export function computeStepSessionDurationSeconds(timerMode, config, exercises) {
+  if (timerMode !== 'interval' && timerMode !== 'pails_rails') return null
+  const passes = buildPasses(exercises, sessionSideMode(timerMode, config))
+  const steps = totalSessionSteps(passes, config.rounds)
   if (timerMode === 'interval') {
-    const { workSeconds, restSeconds, rounds, sideMode } = config
-    const sideMultiplier = sideMode === 'unilateral' ? 2 : 1
-    return (workSeconds + restSeconds) * rounds * exerciseCount * sideMultiplier
+    return (config.workSeconds + config.restSeconds) * steps
   }
-  if (timerMode === 'pails_rails') {
-    const { holdSeconds, rampSeconds, pailsHoldSeconds, railsHoldSeconds, rounds } = config
-    return (holdSeconds + rampSeconds + pailsHoldSeconds + railsHoldSeconds) * rounds * exerciseCount * 2
-  }
-  return null
+  const { holdSeconds, rampSeconds, pailsHoldSeconds, railsHoldSeconds } = config
+  return (holdSeconds + rampSeconds + pailsHoldSeconds + railsHoldSeconds) * steps
 }
 
 // ---------------- Open Work (unchanged machine, just relocated) ----------------

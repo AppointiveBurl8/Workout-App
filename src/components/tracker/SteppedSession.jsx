@@ -4,8 +4,10 @@ import { formatMMSS } from '../../lib/formatDuration'
 import {
   SIDE_LABELS,
   advanceSessionPosition,
-  isUnilateral,
+  buildPasses,
+  resolvePosition,
   retreatSessionPosition,
+  sessionSideMode,
 } from '../../lib/sessionEngine'
 import {
   dangerButtonClass,
@@ -68,33 +70,32 @@ function CountdownScreen({
 export default function SteppedSession({ steps, session, dispatch }) {
   const {
     timerMode,
-    currentIndex,
     transitioning,
     transitionRemaining,
     leadIn,
     leadInRemaining,
     round,
-    side,
+    passIndex,
+    indexInPass,
     pendingPosition,
     paused,
     started,
     stepState,
   } = session
   const config = timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
-  const currentExercise = steps[currentIndex]
 
-  // The session is a circuit - the exercise list per round, and on a unilateral
-  // workout all of that once per side - so what comes next isn't currentIndex + 1.
-  const position = {
-    currentIndex,
-    round,
-    side,
-    exerciseCount: steps.length,
-    rounds: config.rounds,
-    unilateral: isUnilateral(timerMode, config),
-  }
+  // The session is a circuit: the exercise list per round, and on a unilateral
+  // workout a second pass over the two-sided ones. So what comes next is never
+  // just index + 1, and a symmetrical exercise isn't in the second pass at all.
+  const passes = buildPasses(steps, sessionSideMode(timerMode, config))
+  const here = resolvePosition(steps, passes, { round, passIndex, indexInPass })
+  const currentExercise = here.exercise
+  const side = here.side
+
+  const position = { round, passIndex, indexInPass, passes, rounds: config.rounds }
   const forward = advanceSessionPosition(position)
   const backward = retreatSessionPosition(position)
+  const nextUpAt = forward.done ? null : resolvePosition(steps, passes, forward)
 
   const countdownRemaining = leadIn ? leadInRemaining : transitioning ? transitionRemaining : null
 
@@ -132,12 +133,13 @@ export default function SteppedSession({ steps, session, dispatch }) {
       }
     }
     if (transitioning && pendingPosition) {
-      const switchingSides = pendingPosition.side !== side
-      const sideLabel = pendingPosition.side ? SIDE_LABELS[pendingPosition.side] : null
+      const pending = resolvePosition(steps, passes, pendingPosition)
+      const switchingSides = pendingPosition.passIndex !== passIndex
+      const sideLabel = pending.side ? SIDE_LABELS[pending.side] : null
       const roundLabel = `Round ${pendingPosition.round} of ${config.rounds}`
       return {
         heading: switchingSides ? 'Switch Sides' : 'Up Next',
-        exerciseName: steps[pendingPosition.currentIndex].name,
+        exerciseName: pending.exercise.name,
         sideLabel: sideLabel ? `${sideLabel} \u00b7 ${roundLabel}` : roundLabel,
         remainingSeconds: transitionRemaining,
         skipLabel: switchingSides ? 'Skip wait, I\u2019m over' : 'Skip wait, start now',
@@ -151,9 +153,11 @@ export default function SteppedSession({ steps, session, dispatch }) {
   /** What the rest timer is resting for - the whole point of the rest, really. */
   function restNextUp() {
     if (timerMode !== 'interval' || stepState.phase !== 'rest') return null
-    if (forward.done) return 'Last one \u2014 the workout ends after this'
-    const parts = [steps[forward.currentIndex].name]
-    if (forward.side !== side) parts.push(SIDE_LABELS[forward.side].toLowerCase())
+    if (forward.done || !nextUpAt) return 'Last one \u2014 the workout ends after this'
+    const parts = [nextUpAt.exercise.name]
+    // A symmetrical movement has no side to name, so say nothing rather than
+    // announcing a side it doesn't have.
+    if (nextUpAt.side && nextUpAt.side !== side) parts.push(SIDE_LABELS[nextUpAt.side].toLowerCase())
     if (forward.round !== round) parts.push(`round ${forward.round} of ${config.rounds}`)
     return `Next: ${parts.join(', ')}`
   }
@@ -176,7 +180,7 @@ export default function SteppedSession({ steps, session, dispatch }) {
               screen before Start is tapped (item 7) - only the transport row changes. */}
           {timerMode === 'interval' ? (
             <IntervalStep
-              key={`${side}-${round}-${currentIndex}`}
+              key={`${round}-${passIndex}-${indexInPass}`}
               config={config}
               stepState={stepState}
               side={side}
@@ -187,7 +191,7 @@ export default function SteppedSession({ steps, session, dispatch }) {
             />
           ) : (
             <PailsRailsStep
-              key={`${side}-${round}-${currentIndex}`}
+              key={`${round}-${passIndex}-${indexInPass}`}
               config={config}
               stepState={stepState}
               side={side}

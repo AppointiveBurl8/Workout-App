@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { normalizeExercise } from './lib/exerciseDraft'
 import { normalizeLoggedSession } from './lib/loggedSession'
 import { defaultSetsRepsScheme } from './lib/setsReps'
 
@@ -281,19 +282,42 @@ db.version(7)
       }),
   )
 
+// Not every movement has a left and a right. A forward fold run "Left, then
+// Right" is just the same fold twice. `sided` marks the ones that do, and
+// defaults true so nothing changes until a movement is explicitly unticked.
+// Named `sided` rather than a fourth `sideMode`, which already means three
+// different things in this codebase.
+db.version(8)
+  .stores({
+    exercises: '++id, name, *categories',
+    workoutTemplates: '++id, name, category',
+    loggedSessions: '++id, date, templateId, category',
+    settings: 'key',
+  })
+  .upgrade((tx) =>
+    tx
+      .table('exercises')
+      .toCollection()
+      .modify((exercise) => {
+        if (exercise.sided === undefined) exercise.sided = true
+      }),
+  )
+
 // ---------------- Exercise ----------------
 
 export async function addExercise(exercise) {
   return db.exercises.add({
     name: '',
     categories: [],
+    sided: true,
     notes: '',
     ...exercise,
   })
 }
 
 export async function getExercises() {
-  return db.exercises.toArray()
+  const exercises = await db.exercises.toArray()
+  return exercises.map(normalizeExercise)
 }
 
 export async function getExercise(id) {
@@ -419,7 +443,7 @@ export async function importAllData({ exercises, templates, sessions }) {
     await db.exercises.clear()
     await db.workoutTemplates.clear()
     await db.loggedSessions.clear()
-    if (exercises.length) await db.exercises.bulkAdd(exercises)
+    if (exercises.length) await db.exercises.bulkAdd(exercises.map(normalizeExercise))
     if (templates.length) await db.workoutTemplates.bulkAdd(templates)
     // Both external entry points - a backup file and a cloud pull - land here, so
     // this is the one place that has to cope with rows written before `type`.

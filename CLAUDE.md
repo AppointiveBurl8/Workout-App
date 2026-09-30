@@ -1,7 +1,7 @@
 # Workout Tracker
 
 **Last updated:** 2026-09-30 · code state describes this branch through the
-log-editing commit; spec accuracy re-verified at `58cff65` and the fixes that
+per-exercise `sided` commit; spec accuracy re-verified at `58cff65` and the fixes that
 followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
@@ -16,7 +16,7 @@ timer), **Log** (history + stats).
 | | |
 |---|---|
 | Stack | React 19, Vite 8, Tailwind 4, react-router-dom 7 |
-| Storage | Dexie 4 (IndexedDB), schema v7 — the source of truth, works offline |
+| Storage | Dexie 4 (IndexedDB), schema v8 — the source of truth, works offline |
 | Optional sync | Firebase 12 (Firestore + Google auth), whole-blob per user |
 | Deploy | GitHub Pages via Actions, `base: '/Workout-App/'` |
 | Live URL | https://appointiveburl8.github.io/Workout-App/ |
@@ -47,7 +47,7 @@ history. Export a backup or sync before installing.
 
 ## 3. Data model (as implemented)
 
-Dexie database `WorkoutTrackerDB`, defined in `src/db.js`. **Schema version 7.**
+Dexie database `WorkoutTrackerDB`, defined in `src/db.js`. **Schema version 8.**
 
 ### Indexes (v6 `stores`)
 
@@ -61,10 +61,15 @@ settings:        'key'
 ### Exercise
 
 ```js
-{ id, name, categories: Array<'kettlebell'|'mobility'|'stretching'>, notes }
+{ id, name, categories: Array<'kettlebell'|'mobility'|'stretching'>,
+  sided: boolean /* default true */, notes }
 ```
 
-No timer mode, no sets/reps, no side field — all of that lives on the workout.
+No timer mode and no sets/reps — those live on the workout. `sided` is the one
+per-exercise side field: "has distinct left and right sides", default `true`, read
+as `exercise.sided !== false` everywhere. A symmetrical movement (`false`) runs
+**once per round**, in the left pass, and never shows a side label; the right pass
+skips it. Named `sided` and not a fourth `sideMode` on purpose — see §7.
 
 ### WorkoutTemplate
 
@@ -130,6 +135,7 @@ that on both external entry points, backup import and cloud pull, via
 | 5 | Dropped `Exercise.repsLabel`; added `WorkoutTemplate.setsReps[]` (one per exercise slot) |
 | 6 | Replaced that array with a single `openWorkConfig.setsReps`; carries over the first exercise's v5 scheme |
 | 7 | Added `LoggedSession.type`, backfilled `'workout'` on every existing row |
+| 8 | Added `Exercise.sided`, backfilled `true` on every existing row |
 
 ## 4. Features — status table
 
@@ -145,6 +151,7 @@ that on both external entry points, backup import and cloud pull, via
 | Tracker — Interval | Done | `src/components/tracker/IntervalStep.jsx` + `SteppedSession.jsx` |
 | Tracker — Pails/Rails | Done | `src/components/tracker/PailsRailsStep.jsx` + `SteppedSession.jsx` |
 | Phase machines (pure) | Done | `src/lib/sessionEngine.js` |
+| Per-exercise sided flag (symmetrical movements run once) | Done | `sessionEngine.js` (`buildPasses`), `ExerciseForm.jsx` |
 | Wall-clock timing (backgrounded time recovered) | Done, unverified on iPhone | `src/lib/useWallClockTicker.js`, `TICK_N` in `activeSessionStore.jsx` |
 | Session state survives tab switch + reload | Done | `src/lib/activeSessionStore.jsx` |
 | Lead-in "get into position" countdown (10s) | Done | `SteppedSession.jsx`, `sessionEngine.js` (`LEAD_IN_SECONDS`) |
@@ -185,6 +192,10 @@ Kept as stated unless the code contradicts them. Two do.
   countdown on it meant resting twice between every movement. Pails/Rails gets
   the countdown on every handover (it ends on a hold); **any** side change gets
   one. Deliberate, introduced with the circuit rework.
+- ⚠️ **"Pails/Rails is always unilateral" — now qualified.** The mode is still
+  always unilateral, but that means "honour the per-exercise `sided` flags", not
+  "run everything twice". A Pails/Rails workout of symmetrical stretches runs a
+  single unlabelled pass.
 - **Pails/Rails sequence:** stretch hold → ramp → PAILs → switch cue → RAILs. ✅
   Colors: hold **yellow**, PAILs **green**, RAILs **red**, ramp/switch **neutral
   gray**. ✅ Interval adds work=indigo, rest=emerald.
@@ -304,15 +315,29 @@ A **rest day** bridges a streak without adding to it and counts towards nothing
 else. Full rules in `specs/07-log.md`.
 
 **Q: Is there a unilateral option for exercises that aren't left/right?**
-**Not per exercise.** Side is a workout-level setting, and `sideMode` means three
-different things:
-- `intervalConfig.sideMode`: `bilateral` | `unilateral` — user-selectable.
+**Yes**, as of the `sided` commit: `Exercise.sided` (default `true`) marks whether
+a movement has distinct sides. Untick it and the exercise runs **once per round**,
+in the left pass at its list position, with no side label anywhere — the right
+pass skips it, and the duration estimate counts it once. A workout where nothing
+is sided runs a single unlabelled pass. `buildPasses()` in `sessionEngine.js` is
+the single source of truth; the session position indexes into the *pass*, not the
+exercise list, which is what lets the right pass be a shorter list.
+
+The exercise list (with its flags) is snapshotted onto the session at start, so
+editing an exercise mid-workout can't reshape the circuit. Names still resolve
+live.
+
+`sideMode` still means three different things, which is why the new field isn't a
+fourth one:
+- `intervalConfig.sideMode`: `bilateral` | `unilateral` — user-selectable. Under
+  `bilateral` the `sided` flag is ignored entirely.
 - `pailsRailsConfig.sideMode`: **hard-coded `'unilateral'`**, no UI to change it.
-  A Pails/Rails workout containing a symmetrical stretch will still run it twice,
-  labelled Left then Right, and its duration estimate doubles accordingly.
-- `WorkoutTemplate.sideMode`: `bilateral`|`blocked`|`alternating` — this one is
-  only a *grouping label* for the Open Work movement list, unrelated to the above.
-The three sharing a name is a readability trap for anyone new to the code.
+  It now means "honour the per-exercise flags" rather than "run everything twice".
+- `WorkoutTemplate.sideMode`: `bilateral`|`blocked`|`alternating` — only a
+  *grouping label* for the Open Work movement list, unrelated to the above.
+**Open Work ignores `sided` completely** — its movement list is a static
+reference with no sequencing to skip. Deliberately untouched; flagged as an open
+question in `specs/04-tracker.md`.
 
 ### Other confirmed gaps
 
@@ -326,7 +351,14 @@ The three sharing a name is a readability trap for anyone new to the code.
 
 ### Spec vs. code discrepancies
 
-**None known as of `2026-09-30`.** Seven were found and fixed across two commits
+**None known as of `2026-09-30`.** The two the `sided` work was expected to fix —
+"Interval unilateral is a session-level pass" and "Pails/Rails is round → side →
+exercise, not every round runs Left then Right" — were **already corrected** in
+`58cff65` and `948a271`; both specs were re-read to confirm before this commit
+rather than re-fixed. What did need updating was the opposite direction: the
+sections were correct about the old behaviour and this commit changed it.
+
+Seven earlier ones were found and fixed across two commits
 — four from the side/round rework (`b5dab80`, `b17d84f`, `767b106`) leaving stale
 prose in both specs, and three in `specs/01-data-model.md` §Settings (a mute flag
 documented in the wrong storage, a missing `lastExportedAt` key, and the
@@ -419,7 +451,7 @@ src/
       SyncControls.jsx         Sign in/out, conflict resolution, cloud contents readout
   lib/
     activeSessionStore.jsx     Session reducer + provider; IndexedDB mirror; SESSION_SHAPE
-    sessionEngine.js           Pure phase machines, session position, duration estimate
+    sessionEngine.js           Pure phase machines, passes/session position, duration estimate
     setsReps.js                Sets × Reps patterns and sequence generation
     reorder.js                 Pure drag-reorder index maths
     audioCues.js               AudioContext unlock/resume, tones, vibration, mute
@@ -429,7 +461,7 @@ src/
     firebaseConfig.js          Public web config + emulator toggle
     dateStats.js               Week/month counts, streak, local day keys, local-noon dates
     sessionConfig.js           Template → session config resolution
-    exerciseDraft.js           Exercise form draft shape
+    exerciseDraft.js           Exercise form draft shape + the `sided` normalizer
     formatDuration.js          formatMMSS
     categories.js              Category labels and colors
     loggedSession.js           Rest-day shape + the pre-v7 `type` normalizer

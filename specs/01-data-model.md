@@ -14,9 +14,26 @@ run as intervals one day and open work the next.
   id: number,
   name: string,
   categories: Array<'kettlebell'|'mobility'|'stretching'>,  // an exercise can belong to several
+  sided: boolean,   // has distinct left and right sides; default true
   notes?: string,
 }
 ```
+
+`sided` means "this movement has a left and a right". A pigeon pose does; a
+forward fold doesn't, and running it "Left, then Right" is just doing it twice.
+It **defaults to `true`** for new and existing exercises, so behaviour is
+unchanged until a movement is explicitly unticked, and a missing value is read as
+`true` everywhere (`exercise.sided !== false`). `normalizeExercise()` in
+`src/lib/exerciseDraft.js` applies that on both external paths - backup import
+and cloud pull.
+
+Named `sided` deliberately, **not** a fourth `sideMode`: that name already means
+three different things in this codebase (see below), and a fourth would be
+unreadable.
+
+What it does to a session is in `specs/04-tracker.md` - briefly, a symmetrical
+exercise runs once per round in the left pass and the right pass skips it. Open
+Work's movement list ignores the flag entirely.
 
 ## WorkoutTemplate
 
@@ -49,10 +66,14 @@ run as intervals one day and open work the next.
 
 `sideMode` is confirmable on the Start Workout screen, same pattern as Open Work's
 `sideMode`. `unilateral` makes the side a **session-level pass**, not a phase
-inside any exercise: the session nests **round -> side -> exercise**, so a round
-runs the whole exercise list on the left, then the whole list again on the right,
-and the next round starts over on the left. The phase machine carries no side at
-all, and there is no `side_switch` phase - see `specs/04-tracker.md`.
+inside any exercise: the session nests **round -> pass -> exercise**, so a round
+runs the whole exercise list on the left, then again on the right, and the next
+round starts over on the left. The phase machine carries no side at all, and
+there is no `side_switch` phase - see `specs/04-tracker.md`.
+
+The right pass covers only the exercises with `sided: true`; a symmetrical one
+runs once, in the left pass, and shows no side label. `bilateral` ignores the
+flag entirely - everything runs once either way.
 
 ### PailsRailsConfig
 
@@ -69,10 +90,14 @@ all, and there is no `side_switch` phase - see `specs/04-tracker.md`.
 
 `sideMode` is not user-editable for this mode; it's stored for symmetry with
 `IntervalConfig` but the Start Workout / template editor UI doesn't offer a picker
-for it. Each round runs the **full exercise list on the left, then the full list
-again on the right** - the side changes between those two passes, never between
-one exercise and the next within a pass, and never inside a single exercise. Same
-`round -> side -> exercise` nesting as unilateral Interval, above.
+for it. It now means "honour the per-exercise `sided` flags" rather than "run
+everything twice". Each round runs the **full exercise list on the left, then the
+sided ones again on the right** - the side changes between those two passes,
+never between one exercise and the next within a pass, and never inside a single
+exercise. Same `round -> pass -> exercise` nesting as unilateral Interval, above.
+
+So a Pails/Rails workout containing a symmetrical stretch no longer runs it twice
+under two side labels, which it did until `Exercise.sided` existed.
 
 ### OpenWorkConfig
 
@@ -218,6 +243,10 @@ the session object's layout changes, and expect that cost.
   to Open Work, not per-exercise. Existing templates carry over their first
   exercise's v5 scheme (if any) as the new workout-wide default, then drop the
   array.
+- **v8**: added `Exercise.sided` (`boolean`), backfilled `true` on every existing
+  row - which is the behaviour they all had, since every exercise was run on both
+  sides in a unilateral workout. Indexes unchanged; sequencing reads the flag off
+  the loaded rows, never queries by it.
 - **v7**: added `LoggedSession.type` (`'workout'|'rest'`), backfilled `'workout'`
   on every existing row - which is what they all were. Indexes unchanged: rest
   days are filtered in memory, and there are never enough logged sessions for
@@ -228,6 +257,10 @@ the session object's layout changes, and expect that cost.
 Schema changes are in "Migration history" above. This section records corrections
 to *this document* where it had drifted from the code.
 
+- **Added** - `Exercise.sided` (v8), and the §IntervalConfig / §PailsRailsConfig
+  prose updated for what it changes. The Pails/Rails section previously said each
+  round runs the full list on *both* sides unconditionally; with the flag that is
+  only true of a workout whose movements are all two-sided.
 - **Added** - `LoggedSession.type` and the rest-day shape (v7). The rules about
   what a rest day does to a streak and to the stats live in `specs/07-log.md`
   rather than here; this file describes the field.

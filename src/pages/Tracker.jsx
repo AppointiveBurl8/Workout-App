@@ -33,15 +33,17 @@ export default function Tracker() {
     if (!resolvedTemplateId || allExercises === undefined || template === undefined || template === null) return
     bootstrapped.current = true
     const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
-    const exerciseIds = (template.exerciseIds ?? []).filter((id) => exercisesById.has(id))
-    if (exerciseIds.length === 0) return
+    const exercises = (template.exerciseIds ?? [])
+      .map((id) => exercisesById.get(id))
+      .filter(Boolean)
+    if (exercises.length === 0) return
     const { timerMode, ...config } = resolveSessionConfig(template, template.category)
     dispatch({
       type: 'START_SESSION',
       templateId: template.id,
       workoutName: template.name,
       category: template.category,
-      exerciseIds,
+      exercises,
       timerMode,
       config,
     })
@@ -106,7 +108,9 @@ export default function Tracker() {
   }
 
   const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]))
-  const steps = session.exerciseIds.map((id) => exercisesById.get(id)).filter(Boolean)
+  // Names resolve live (a rename shows immediately); the `sided` flags that decide
+  // the circuit come from the session's own snapshot, not from here.
+  const steps = session.exercises.map((e) => ({ ...exercisesById.get(e.id), ...e })).filter((e) => e.name)
 
   if (steps.length === 0) {
     return (

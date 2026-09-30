@@ -38,7 +38,18 @@ export default function ExerciseListItem({
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{exercise ? exercise.name : 'Unknown exercise'}</p>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-sm font-medium">
+            {exercise ? exercise.name : 'Unknown exercise'}
+          </p>
+          {/* Only the exception is marked. Two-sided is the default and the
+              common case, so a chip on every other row would be noise. */}
+          {exercise && exercise.sided === false && (
+            <span className="shrink-0 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+              Both sides
+            </span>
+          )}
+        </div>
         {exercise && showCategory && (
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
             {(exercise.categories ?? []).map((category) => (

@@ -54,6 +54,25 @@ export default function ExerciseForm({ draft, onChange }) {
       </div>
 
       <div>
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-5 w-5 shrink-0 accent-indigo-600"
+            checked={draft.sided !== false}
+            onChange={(e) => onChange({ ...draft, sided: e.target.checked })}
+          />
+          <span>
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Has left/right sides
+            </span>
+            <span className="block text-xs text-neutral-500 dark:text-neutral-400">
+              Untick for symmetrical movements. They run once per round instead of twice.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div>
         <label className={labelClass} htmlFor="exercise-notes">
           Notes (optional)
         </label>

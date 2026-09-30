@@ -90,10 +90,10 @@ does get the between-exercise countdown on every handover. Pails/Rails movements
 'unilateral'`, constant - see `specs/01-data-model.md`); the side is handled at
 session level, below.
 
-### Rounds are circuits, a side at a time
+### Rounds are circuits, a pass at a time
 
-A session is a circuit, nested **round -> side -> exercise**. A round is one pass
-through every exercise on each side, so an exercise's phase machine runs exactly
+A session is a circuit, nested **round -> pass -> exercise**. A round is one pass
+through the exercise list per side, so an exercise's phase machine runs exactly
 one turn's worth of work and then hands back:
 
 ```
@@ -101,30 +101,68 @@ Round 1:  left (a b c) -> Switch Sides -> right (a b c)
 Round 2:  left (a b c) -> Switch Sides -> right (a b c)
 ```
 
-Bilateral workouts are the same thing without the side layer: round 1 is a b c,
+Bilateral workouts are the same thing with one unlabelled pass: round 1 is a b c,
 round 2 is a b c. Either way you finish the whole list on one side before
 changing side - the side never changes between exercises - and a round ends by
 coming back to the left for the next one.
 
-So neither the round nor the side belongs to a movement's phase machine; both
-live on the session. `initIntervalStepState`/`initPailsRailsStepState` carry
-neither, and there's no `side_switch` phase. `sessionEngine.js` owns the
-sequencing as two pure mirrored functions - `advanceSessionPosition` and
-`retreatSessionPosition` - over `{ currentIndex, round, side }`:
+#### Symmetrical exercises run once
 
-- Not on the last exercise -> next exercise, same round, same side.
-- Last exercise, on the left -> first exercise, same round, right side.
-- Last exercise (on the right, or bilateral), rounds remaining -> first exercise,
-  next round, back to the left.
+Not every movement has a left and a right. A forward fold run "Left, then Right"
+is just the same fold twice. `Exercise.sided` marks the ones that do have sides
+(default `true`), and a **symmetrical exercise runs once per round, in the left
+pass, at its list position**. The right pass skips it. With `b` unsided:
+
+```
+Round 1:  left (a b c) -> Switch Sides -> right (a c)
+```
+
+It shows **no side label** at any point - not "Left side" during the left pass,
+not in the "Up Next" screen, not in the Interval rest timer's next-up line.
+Saying "left" about a movement with no left is worse than saying nothing.
+
+If **nothing** in the workout is sided there is a single unlabelled pass and no
+side labels anywhere - the same as a bilateral session. A bilateral Interval
+workout ignores the flag entirely; everything runs once either way.
+
+`buildPasses(exercises, sideMode)` in `sessionEngine.js` is the single source of
+truth for this, and everything else derives from it:
+
+```js
+[{ side: 'left', indices: [0, 1, 2] }, { side: 'right', indices: [0, 2] }]
+```
+
+#### The position model
+
+Neither the round nor the side belongs to a movement's phase machine; both live
+on the session. `initIntervalStepState`/`initPailsRailsStepState` carry neither,
+and there's no `side_switch` phase. `sessionEngine.js` owns the sequencing as two
+pure mirrored functions - `advanceSessionPosition` and `retreatSessionPosition` -
+over `{ round, passIndex, indexInPass }`:
+
+- Not at the end of the pass -> next slot in the same pass.
+- End of the pass, another pass to go -> first slot of the next pass.
+- End of the last pass, rounds remaining -> first slot of the first pass, next
+  round.
 - Otherwise -> the session is done.
 
+Note the position indexes **into the pass**, not into the exercise list. That is
+what lets the right pass be a different, shorter list without any of the stepping
+logic knowing about `sided`. `resolvePosition()` turns a position back into the
+concrete exercise and its side label.
+
+The exercise list, with its `sided` flags, is **snapshotted onto the session when
+it starts** rather than looked up live. Editing an exercise mid-session would
+otherwise reshape the circuit underneath a running workout. Names still resolve
+live, so a rename shows up immediately; only the flags are frozen.
+
 `needsTransitionCountdown` decides whether a handover gets its own countdown
-screen (see Interval, above). When it does, `pendingPosition` records where that
-countdown is heading, so letting it run out, skipping it, and Next all land in
-the same place. A side change reads "Switch Sides"; anything else reads "Up Next".
-A unilateral session therefore gets `rounds × 2 - 1` of those side-change
-screens - one between the two halves of each round, and one at each round
-boundary coming back to the left.
+screen (see Interval, above), now keyed on crossing a **pass** boundary rather
+than comparing side labels - which is the same thing, and still right when the
+exercise on one side of the boundary has no label to compare. When it does,
+`pendingPosition` records where that countdown is heading, so letting it run out,
+skipping it, and Next all land in the same place. A pass change reads "Switch
+Sides"; anything else reads "Up Next".
 
 Because both functions are pure and exported, the Rest phase's next-up line and
 the Prev/Next disabled states read the same sequencing the reducer does rather
@@ -135,9 +173,8 @@ than from the step components: a round now ends by moving to a different
 exercise, which remounts the step component and loses the before/after it would
 have compared.
 
-Total duration is unaffected by any of this - the same work in a different
-order - so the `rounds × exerciseCount` and the ×2 in both estimate formulas
-still hold.
+Total duration is **not** independent of the flags any more, and the estimate
+formulas changed accordingly - see "Total duration estimate" below.
 
 ### Lead-in countdown (Interval, Pails/Rails)
 
@@ -196,12 +233,25 @@ Shown on the Start Workout screen (which doubles as the pre-start workout previe
 this is the one screen shown "before starting" a workout), recalculated live as
 chips change:
 
-- **Interval**: `(work + rest) × rounds × exercise count`, ×2 when `sideMode` is
-  `'unilateral'`.
-- **Pails/Rails**: `(stretchHold + ramp + pailsHold + railsHold) × rounds ×
-  exercise count × 2` (always ×2 - Pails/Rails is always unilateral).
+Both stepped modes are `per-step duration × total steps`, where the step count
+comes from `buildPasses` rather than a multiplier - so a symmetrical exercise is
+counted once, not twice:
+
+```js
+totalSessionSteps(passes, rounds)  // = rounds × Σ pass.indices.length
+```
+
+- **Interval**: `(work + rest) × steps`.
+- **Pails/Rails**: `(stretchHold + ramp + pailsHold + railsHold) × steps`.
 - **Open Work** has its own fixed `sessionTargetSeconds` instead of a computed
   total, so no estimate is shown for it.
+
+A unilateral workout with no symmetrical exercises still comes out at exactly
+twice the bilateral figure, as it did before. One with some shows a line under
+the estimate - "N symmetrical exercise(s) run once per round" - because
+otherwise the number looks wrong against the exercise count. There is a test
+asserting the estimate equals the steps a full session actually generates, for
+every combination; the two disagreeing is the failure mode that matters.
 
 Durations everywhere in the Tracker (chip steppers, the running timer, this total)
 are formatted `m:ss` via `formatMMSS`.
@@ -357,6 +407,18 @@ button.
 
 ## Known Issues / Changelog
 
+- **Added** - `Exercise.sided`, so a symmetrical movement runs once per round
+  instead of being run twice under two side labels - see "Symmetrical exercises
+  run once" above. The session position moved from
+  `{ currentIndex, round, side }` to `{ round, passIndex, indexInPass }` over the
+  passes from `buildPasses`, which is what lets the right pass be a shorter list
+  without the stepping logic knowing about the flag. Defaults true everywhere,
+  including for rows that predate it, so nothing changes until a movement is
+  explicitly unticked. `SESSION_SHAPE` went to 4; an in-flight workout across
+  that deploy is discarded, by design.
+  *Open:* Open Work's `blocked`/`alternating` movement list ignores the flag
+  entirely - it's a reference list with no sequencing to skip. Flagged to the
+  owner for a decision, deliberately untouched here.
 - **Fixed** - session time no longer under-counts when the phone is locked or
   the tab is backgrounded. Ticks are measured against the wall clock and replayed
   through the existing single-tick path, so a gap lands where a foreground run
