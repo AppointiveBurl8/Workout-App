@@ -143,6 +143,8 @@ export default function TemplateEditor({ editingId, initialExerciseIds = [], onC
       intervalConfig: draft.intervalConfig,
       pailsRailsConfig: draft.pailsRailsConfig,
       openWorkConfig: draft.openWorkConfig,
+      emomConfig: draft.emomConfig,
+      amrapConfig: draft.amrapConfig,
       sideMode: draft.sideMode,
     }
     if (editingId === 'new') {

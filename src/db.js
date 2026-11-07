@@ -4,7 +4,7 @@ import { normalizeLoggedSession } from './lib/loggedSession'
 import { defaultSetsRepsScheme } from './lib/setsReps'
 
 export const EXERCISE_CATEGORIES = ['kettlebell', 'mobility', 'stretching']
-export const TIMER_MODES = ['open_work', 'interval', 'pails_rails']
+export const TIMER_MODES = ['open_work', 'interval', 'pails_rails', 'emom', 'amrap']
 /** Interval's per-round side split. Pails/Rails is always 'unilateral' - not user-selectable. */
 export const INTERVAL_SIDE_MODES = ['bilateral', 'unilateral']
 export const SIDE_MODES = ['bilateral', 'blocked', 'alternating']
@@ -28,6 +28,16 @@ export const DEFAULT_OPEN_WORK_CONFIG = {
   sessionTargetSeconds: 1200,
   restSeconds: 120,
   setsReps: defaultSetsRepsScheme(),
+}
+/** Every minute on the minute: one exercise per interval, the circuit repeated `rounds` times. */
+export const DEFAULT_EMOM_CONFIG = {
+  intervalSeconds: 60,
+  rounds: 5,
+  sideMode: 'bilateral',
+}
+/** As many rounds as possible of the exercise list before the cap runs out. */
+export const DEFAULT_AMRAP_CONFIG = {
+  timeCapSeconds: 600,
 }
 
 const CATEGORY_DEFAULT_TIMER_MODE = {
@@ -63,6 +73,14 @@ export function defaultTimerModeForCategory(category) {
  *   plan, exclusive to Open Work - Interval and Pails/Rails have their own rounds/work/
  *   rest structure instead, so a separate sets/reps scheme would be redundant there
  *
+ * @typedef {Object} EmomConfig
+ * @property {number} intervalSeconds length of each "minute" - 60 for a true EMOM
+ * @property {number} rounds passes through the exercise list; total minutes = rounds x exercises
+ * @property {'bilateral'|'unilateral'} sideMode as Interval: unilateral runs a left pass then a right pass
+ *
+ * @typedef {Object} AmrapConfig
+ * @property {number} timeCapSeconds hard stop; the score is rounds (+ movements) reached by then
+ *
  * @typedef {Object} Exercise
  * A movement, and nothing about how it's timed or how many sets/reps it calls for -
  * both belong to the workout that runs it, so the same movement can be run as
@@ -79,10 +97,12 @@ export function defaultTimerModeForCategory(category) {
  * @property {string[]} tags target areas, e.g. "hips", "full-body"
  * @property {number[]} exerciseIds ordered Exercise ids in this template
  * @property {boolean} archived soft-delete flag; archived templates are hidden from the main list
- * @property {'open_work'|'interval'|'pails_rails'} defaultTimerMode pre-selected on the Start Workout screen
+ * @property {'open_work'|'interval'|'pails_rails'|'emom'|'amrap'} defaultTimerMode pre-selected on the Start Workout screen
  * @property {IntervalConfig} intervalConfig applied to every exercise when run as intervals
  * @property {PailsRailsConfig} pailsRailsConfig applied to every exercise when run as Pails/Rails
  * @property {OpenWorkConfig} openWorkConfig used when run as open work
+ * @property {EmomConfig} [emomConfig] used when run as EMOM; absent on pre-EMOM rows, filled from defaults on read
+ * @property {AmrapConfig} [amrapConfig] used when run as AMRAP; same
  * @property {'bilateral'|'blocked'|'alternating'} sideMode how the open-work movement list is grouped
  *
  * @typedef {Object} LoggedSession
@@ -92,6 +112,7 @@ export function defaultTimerModeForCategory(category) {
  * @property {'kettlebell'|'mobility'|'stretching'} category
  * @property {number} durationSeconds
  * @property {number|null} setsCompleted relevant for open_work sessions
+ * @property {number|null} [roundsCompleted] full rounds reached in an AMRAP session; null otherwise
  * @property {number|null} rpe 1-10
  * @property {string} [notes]
  */
@@ -352,6 +373,8 @@ export async function addWorkoutTemplate(template) {
     intervalConfig: { ...DEFAULT_INTERVAL_CONFIG },
     pailsRailsConfig: { ...DEFAULT_PAILS_RAILS_CONFIG },
     openWorkConfig: { ...DEFAULT_OPEN_WORK_CONFIG },
+    emomConfig: { ...DEFAULT_EMOM_CONFIG },
+    amrapConfig: { ...DEFAULT_AMRAP_CONFIG },
     sideMode: 'bilateral',
     ...template,
   })
@@ -392,6 +415,7 @@ export async function addLoggedSession(session) {
     date: new Date().toISOString(),
     templateId: null,
     setsCompleted: null,
+    roundsCompleted: null,
     rpe: null,
     notes: '',
     ...session,

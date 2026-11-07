@@ -100,6 +100,16 @@ rest. Logging a rest day and then training anyway is a thing that happens, and
 the streak resolves it correctly on its own (a day in both sets counts as a
 workout). The stale rest row is then the user's to delete.
 
+### Rounds completed (AMRAP)
+
+An AMRAP session hands off `roundsCompleted` (full rounds; the "+ movements" part
+of the live score isn't stored). The form shows a **Rounds completed** field only
+where a round score already exists - the post-workout hand-off from an AMRAP, or
+editing a row that has one. A hand-added entry doesn't get it: the form can't
+know which mode it was, and a category doesn't imply one. Every other entry saves
+`roundsCompleted: null`, and the history row shows "N rounds" next to the
+duration when it's set. Like sets, rounds count towards no stat.
+
 ### Deleting
 
 Delete lives at the bottom of the edit overlay in destructive styling. The first
@@ -139,6 +149,8 @@ pass without testing anything, and a vacuous test is worse than no test.
 
 ## Changelog
 
+- **Added (2026-11-07)** - `roundsCompleted` for AMRAP sessions; see "Rounds
+  completed" above.
 - **Added** — rest days, and adding, editing and deleting log entries. The Log
   was previously append-only from the Tracker. Dexie v7 adds
   `LoggedSession.type`; existing rows are backfilled `'workout'`.

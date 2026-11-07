@@ -12,6 +12,7 @@ import {
   primaryButtonClass,
   secondaryButtonClass,
 } from '../../lib/ui'
+import EmomStep from './EmomStep'
 import IntervalStep from './IntervalStep'
 import PailsRailsStep from './PailsRailsStep'
 
@@ -21,6 +22,9 @@ function roundsLabel(rounds) {
 
 /** One config runs every exercise in the session, so the summary describes the session, not the movement. */
 function summarize(timerMode, config) {
+  if (timerMode === 'emom') {
+    return `Every ${formatMMSS(config.intervalSeconds)} × ${roundsLabel(config.rounds)}`
+  }
   if (timerMode === 'interval') {
     const { workSeconds, restSeconds, rounds } = config
     return `Work ${formatMMSS(workSeconds)} / Rest ${formatMMSS(restSeconds)} × ${roundsLabel(rounds)}`
@@ -68,11 +72,12 @@ function CountdownScreen({ heading, exerciseName, sideLabel, summary, remainingS
   )
 }
 
+const CONFIG_KEY = { interval: 'intervalConfig', pails_rails: 'pailsRailsConfig', emom: 'emomConfig' }
+
 export default function SteppedSession({ steps: exercises, session, dispatch }) {
   const { timerMode, leadIn, leadInRemaining, stepIndex, stepElapsedSeconds, paused, started } =
     session
-  const config =
-    timerMode === 'interval' ? session.config.intervalConfig : session.config.pailsRailsConfig
+  const config = session.config[CONFIG_KEY[timerMode]]
 
   // Everything on screen comes off the step at the current index - round, side,
   // exercise, phase, colour and timer - so there is nothing to keep in sync.
@@ -86,9 +91,11 @@ export default function SteppedSession({ steps: exercises, session, dispatch }) 
   const total = stepDurationSeconds(step, timerMode, config)
   const remainingSeconds = Math.max(0, total - stepElapsedSeconds)
 
+  // EMOM counts the last three seconds of every minute too: the next one starts
+  // on the beep whether you're ready or not.
   const countdownRemaining = leadIn
     ? leadInRemaining
-    : step?.kind === 'transition'
+    : step?.kind === 'transition' || (timerMode === 'emom' && started)
       ? remainingSeconds
       : null
 
@@ -125,9 +132,11 @@ export default function SteppedSession({ steps: exercises, session, dispatch }) 
 
   if (!step) return null
 
-  /** What the rest timer is resting for - the whole point of the rest, really. */
+  /** What the rest timer is resting for - the whole point of the rest, really.
+   * An EMOM minute is part work, part rest, so it always says what's next. */
   function restNextUp() {
-    if (timerMode !== 'interval' || step.kind !== 'phase' || step.phase !== 'rest') return null
+    const resting = timerMode === 'interval' && step.kind === 'phase' && step.phase === 'rest'
+    if (!resting && timerMode !== 'emom') return null
     if (!nextStep) return 'Last one — the workout ends after this'
     const parts = [exercises[nextStep.exerciseIndex].name]
     // A symmetrical movement has no side to name, so say nothing rather than
@@ -174,7 +183,20 @@ export default function SteppedSession({ steps: exercises, session, dispatch }) 
           {/* A step sitting at 0 elapsed already shows its full configured
               duration, so the same component doubles as the paused "ready"
               screen before Start is tapped - only the transport row changes. */}
-          {timerMode === 'interval' ? (
+          {timerMode === 'emom' ? (
+            <EmomStep
+              config={config}
+              remainingSeconds={remainingSeconds}
+              phaseTotal={total}
+              side={step.side}
+              minute={stepIndex + 1}
+              minutes={sequence.length}
+              round={round}
+              rounds={config.rounds}
+              nextUp={restNextUp()}
+              onAdjustConfig={(field, value) => dispatch({ type: 'ADJUST_CONFIG', field, value })}
+            />
+          ) : timerMode === 'interval' ? (
             <IntervalStep
               config={config}
               phase={step.phase}

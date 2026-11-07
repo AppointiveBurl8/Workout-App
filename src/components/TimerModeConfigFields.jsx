@@ -25,14 +25,14 @@ function NumberField({ id, label, value, min = 0, onChange }) {
 
 export function TimerModePicker({ value, onChange }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid grid-cols-3 gap-2">
       {TIMER_MODES.map((mode) => (
         <button
           key={mode}
           type="button"
           onClick={() => onChange(mode)}
           aria-pressed={value === mode}
-          className={`min-h-11 flex-1 rounded-full px-4 py-2 text-sm font-medium ${
+          className={`min-h-11 rounded-full px-2 py-2 text-sm font-medium ${
             value === mode
               ? 'bg-indigo-600 text-white'
               : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
@@ -50,10 +50,11 @@ export function TimerModePicker({ value, onChange }) {
  * (where they're the workout's saved defaults) and the Start Workout screen (where
  * they're a per-session override), so both stay in step.
  *
- * `config` carries all three mode configs plus sideMode; `onChange` receives a patch.
+ * `config` carries every mode's config plus sideMode; `onChange` receives a patch.
  */
 export default function TimerModeConfigFields({ timerMode, config, onChange, idPrefix }) {
-  const { intervalConfig, pailsRailsConfig, openWorkConfig, sideMode } = config
+  const { intervalConfig, pailsRailsConfig, openWorkConfig, emomConfig, amrapConfig, sideMode } =
+    config
   const [editingSetsReps, setEditingSetsReps] = useState(false)
 
   const patchInterval = (field, value) =>
@@ -62,6 +63,79 @@ export default function TimerModeConfigFields({ timerMode, config, onChange, idP
     onChange({ pailsRailsConfig: { ...pailsRailsConfig, [field]: value } })
   const patchOpenWork = (field, value) =>
     onChange({ openWorkConfig: { ...openWorkConfig, [field]: value } })
+  const patchEmom = (field, value) => onChange({ emomConfig: { ...emomConfig, [field]: value } })
+
+  if (timerMode === 'emom') {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          <NumberField
+            id={`${idPrefix}-emom-every`}
+            label="Every (sec)"
+            min={15}
+            value={emomConfig.intervalSeconds}
+            onChange={(v) => patchEmom('intervalSeconds', v)}
+          />
+          <NumberField
+            id={`${idPrefix}-emom-rounds`}
+            label="Rounds"
+            min={1}
+            value={emomConfig.rounds}
+            onChange={(v) => patchEmom('rounds', v)}
+          />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor={`${idPrefix}-emom-side`}>
+            Side
+          </label>
+          <select
+            id={`${idPrefix}-emom-side`}
+            className={inputClass}
+            value={emomConfig.sideMode}
+            onChange={(e) => patchEmom('sideMode', e.target.value)}
+          >
+            {INTERVAL_SIDE_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode === 'bilateral' ? 'Bilateral' : 'Unilateral (Left, then Right)'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          One exercise per interval, in list order. Do the reps; what's left of the
+          interval is your rest. A round is one pass through the list.
+        </p>
+      </div>
+    )
+  }
+
+  if (timerMode === 'amrap') {
+    return (
+      <div className="flex flex-col gap-3">
+        <div>
+          <label className={labelClass} htmlFor={`${idPrefix}-amrap-cap`}>
+            Time cap (minutes)
+          </label>
+          <input
+            id={`${idPrefix}-amrap-cap`}
+            type="number"
+            min="1"
+            className={inputClass}
+            value={Math.round(amrapConfig.timeCapSeconds / 60)}
+            onChange={(e) =>
+              onChange({
+                amrapConfig: { ...amrapConfig, timeCapSeconds: Math.max(1, Number(e.target.value)) * 60 },
+              })
+            }
+          />
+        </div>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          As many rounds of the list as you can before the cap. Tap Done after each
+          movement; the score is logged as rounds completed.
+        </p>
+      </div>
+    )
+  }
 
   if (timerMode === 'interval') {
     return (

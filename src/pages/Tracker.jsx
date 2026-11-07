@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import AmrapSession from '../components/tracker/AmrapSession'
 import MuteToggle from '../components/tracker/MuteToggle'
 import OpenWorkSession from '../components/tracker/OpenWorkSession'
 import SteppedSession from '../components/tracker/SteppedSession'
@@ -64,6 +65,7 @@ export default function Tracker() {
         category: session.category,
         durationSeconds: session.completion.durationSeconds,
         setsCompleted: session.completion.setsCompleted,
+        roundsCompleted: session.completion.roundsCompleted ?? null,
       },
     })
     dispatch({ type: 'CLEAR' })
@@ -143,6 +145,8 @@ export default function Tracker() {
       </div>
       {session.timerMode === 'open_work' ? (
         <OpenWorkSession exercises={steps} session={session} dispatch={dispatch} />
+      ) : session.timerMode === 'amrap' ? (
+        <AmrapSession exercises={steps} session={session} dispatch={dispatch} />
       ) : (
         <SteppedSession steps={steps} session={session} dispatch={dispatch} />
       )}

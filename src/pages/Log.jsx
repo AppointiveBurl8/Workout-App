@@ -79,6 +79,11 @@ function HistoryRow({ session, templateName, onEdit }) {
         <span>{formatMMSS(session.durationSeconds)}</span>
         {session.rpe != null && <span>RPE {session.rpe}</span>}
         {session.setsCompleted != null && <span>{session.setsCompleted} sets</span>}
+        {session.roundsCompleted != null && (
+          <span>
+            {session.roundsCompleted} round{session.roundsCompleted === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
       {session.notes && (
         <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{session.notes}</p>

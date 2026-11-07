@@ -32,6 +32,7 @@ export function restSessionFields(date, notes = '') {
     category: null,
     durationSeconds: 0,
     setsCompleted: null,
+    roundsCompleted: null,
     rpe: null,
     notes,
   }

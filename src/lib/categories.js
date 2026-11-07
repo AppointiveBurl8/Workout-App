@@ -21,6 +21,8 @@ export const TIMER_MODE_LABELS = {
   open_work: 'Open Work',
   interval: 'Interval',
   pails_rails: 'PAILs/RAILs',
+  emom: 'EMOM',
+  amrap: 'AMRAP',
 }
 
 export const SIDE_MODE_LABELS = {

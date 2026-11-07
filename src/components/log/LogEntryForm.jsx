@@ -33,6 +33,7 @@ function initialForm(mode, draft, session) {
       durationMin: Math.floor((session.durationSeconds ?? 0) / 60),
       durationSec: (session.durationSeconds ?? 0) % 60,
       setsCompleted: session.setsCompleted ?? 0,
+      roundsCompleted: session.roundsCompleted ?? 0,
       rpe: session.rpe ?? null,
       notes: session.notes ?? '',
     }
@@ -45,6 +46,7 @@ function initialForm(mode, draft, session) {
       durationMin: Math.floor(draft.durationSeconds / 60),
       durationSec: draft.durationSeconds % 60,
       setsCompleted: draft.setsCompleted ?? 0,
+      roundsCompleted: draft.roundsCompleted ?? 0,
       rpe: null,
       notes: '',
     }
@@ -58,6 +60,7 @@ function initialForm(mode, draft, session) {
     durationMin: 0,
     durationSec: 0,
     setsCompleted: 0,
+    roundsCompleted: 0,
     rpe: null,
     notes: '',
   }
@@ -135,6 +138,11 @@ export default function LogEntryForm({
     (mode === 'post-workout'
       ? draft.setsCompleted !== null
       : (mode === 'edit' && session.setsCompleted != null) || categoryTracksSets(form.category))
+  // Only an AMRAP produces a round score, and a hand-added entry can't know its
+  // mode, so the field appears only where one already exists.
+  const showRounds =
+    !isRest &&
+    (mode === 'post-workout' ? draft.roundsCompleted != null : session?.roundsCompleted != null)
 
   const handleSave = async () => {
     const problem = validate(form, sessions, session?.id)
@@ -154,6 +162,7 @@ export default function LogEntryForm({
           durationSeconds:
             Math.max(0, form.durationMin) * 60 + Math.max(0, Math.min(59, form.durationSec)),
           setsCompleted: showSets ? Math.max(0, form.setsCompleted) : null,
+          roundsCompleted: showRounds ? Math.max(0, form.roundsCompleted) : null,
           rpe: form.rpe,
           notes: form.notes.trim(),
         }
@@ -284,6 +293,22 @@ export default function LogEntryForm({
                 className={inputClass}
                 value={form.setsCompleted}
                 onChange={(e) => set('setsCompleted', Math.max(0, Number(e.target.value)))}
+              />
+            </div>
+          )}
+
+          {showRounds && (
+            <div>
+              <label className={labelClass} htmlFor="log-rounds">
+                Rounds completed
+              </label>
+              <input
+                id="log-rounds"
+                type="number"
+                min="0"
+                className={inputClass}
+                value={form.roundsCompleted}
+                onChange={(e) => set('roundsCompleted', Math.max(0, Number(e.target.value)))}
               />
             </div>
           )}

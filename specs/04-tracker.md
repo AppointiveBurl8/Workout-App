@@ -1,7 +1,7 @@
 # Tracker
 
 Runs a workout (a saved template, or an on-the-fly Builder list) against one of
-three timer modes. `src/pages/StartWorkout.jsx` lets the user confirm/tweak the
+five timer modes: Open Work, Interval, Pails/Rails, EMOM and AMRAP. `src/pages/StartWorkout.jsx` lets the user confirm/tweak the
 session's config before it starts; `src/pages/Tracker.jsx` renders the running
 session.
 
@@ -45,8 +45,8 @@ reference list of movements grouped by `sideMode` (`bilateral`/`blocked`/
 Open Work is also the only mode with a Sets × Reps plan
 (`openWorkConfig.setsReps` - see `specs/01-data-model.md`): a single, workout-wide
 choice of Straight/Top-Back-off/Ramp/Pyramid/Reverse Pyramid/Custom, configured on
-the Edit Template page and the Start Workout screen. Interval and Pails/Rails
-don't get this section at all - their rounds/work/rest structure already plays
+the Edit Template page and the Start Workout screen. Interval, Pails/Rails, EMOM
+and AMRAP don't get this section at all - their rounds/work/rest structure already plays
 the role a sets/reps scheme would, so showing one there would be redundant. It's
 never shown per-exercise.
 
@@ -89,6 +89,59 @@ change, not a side change. Ending on a hold with nothing after it, Pails/Rails
 does get the between-exercise countdown on every handover. Pails/Rails movements are always single-sided (`sideMode:
 'unilateral'`, constant - see `specs/01-data-model.md`); the side is handled at
 session level, below.
+
+### EMOM
+
+Every minute on the minute. One exercise per interval (`emomConfig.intervalSeconds`,
+default 60), in list order; do the reps, and whatever is left of the interval is
+the rest. A round is one pass through the list, so total minutes =
+`rounds × steps per round`. The phase is a single `work` step labelled "Every
+Minute" in **orange**, with "Minute _n_ of _N_" and the round under the timer and
+"Next: ..." always showing - an EMOM minute is part work, part rest, so what's
+coming is always the useful question.
+
+It is a stepped mode - it reuses `buildStepSequence`, `buildPasses` and the
+transport unchanged - with one rule of its own: **the clock never stops.**
+`needsTransitionCountdown()` returns `false` for every EMOM handover, side changes
+included; the next minute starts on the beep whether you're ready or not, and
+repositioning for the other side comes out of the remainder of the minute. The
+last three seconds of every minute tick, for the same reason.
+
+`emomConfig.sideMode` is `bilateral` | `unilateral`, exactly as Interval's: under
+`unilateral` the per-exercise `sided` flags decide which minutes repeat on the
+right, so a unilateral EMOM of a swing (symmetrical) and a clean & press (sided)
+runs swing, press-left, press-right... see "Rounds are circuits" below.
+
+Chips: Every (step 15s, min 15s) and Rounds. No Sets × Reps - the rep count is
+whatever the minute is for, and one workout-wide number would be wrong for every
+mixed list.
+
+### AMRAP
+
+As many rounds as possible before a time cap (`amrapConfig.timeCapSeconds`,
+default 600). The cap counts **down** in **rose**; the work is self-paced, so
+there is **no step list**. State is `{ elapsedSeconds, movementIndex,
+roundsCompleted, complete }` in `session.amrap`, driven by `tickAmrapState` /
+`advanceAmrap` / `retreatAmrap` in `sessionEngine.js`.
+
+A step is **one movement**. A large "Done" button (and Next, which is the same
+action) marks the highlighted movement finished; finishing the last one in the
+list scores a round and wraps to the first. The score reads "5 rounds + 2" -
+full rounds plus movements into the next - and the current movement is named
+under it ("Now: ...") as well as highlighted in the list, since the list is often
+below the fold. Previous is an **undo**: back one movement, and back across a
+round boundary un-scoring that round. It is not the restart-or-back rule the
+stepped modes use - there's no step duration to restart.
+
+The session completes when the cap runs out, logging the cap as the duration and
+`roundsCompleted` (full rounds only; the partial movements are shown live, not
+stored). End Workout logs elapsed time and rounds so far. A Time cap chip (step
+1 min) can be changed mid-session; cutting it to at or below the elapsed time
+ends the workout on the next tick.
+
+Like Open Work, AMRAP **ignores the `sided` flags** - the list is a circuit you
+pace yourself through, with no sequencing to skip. Do both sides within a
+movement before tapping Done.
 
 ### Rounds are circuits, a pass at a time
 
@@ -167,12 +220,13 @@ have compared.
 Total duration is **not** independent of the flags any more, and the estimate
 formulas changed accordingly - see "Total duration estimate" below.
 
-### Lead-in countdown (Interval, Pails/Rails)
+### Lead-in countdown (Interval, Pails/Rails, EMOM, AMRAP)
 
-Tapping Start on a stretching or mobility workout opens a 10-second
-get-into-position countdown (`LEAD_IN_SECONDS`) before the first phase begins:
-both modes start in a held position, and you can't be in it at the same moment
-you tap the button. The screen names the movement you're getting into, and
+Tapping Start in any mode but Open Work opens a 10-second get-into-position
+countdown (`LEAD_IN_SECONDS`) before the first phase begins: you can't be in a
+held position, or have the bell in hand, at the same moment you tap the button.
+AMRAP shows it in its own screen ("Get Ready" over the cap timer) rather than
+`CountdownScreen`, and its Done button is disabled until it ends. The screen names the movement you're getting into, and
 carries the same Previous / Pause / Next row as everything else - Pause because
 a hold can need longer than ten seconds to settle into, Next because "I'm ready"
 is just the next step.
@@ -200,20 +254,23 @@ separate position; there is one list and one index into it.
 | **Open Work** | one work block, or one rest |
 | **Interval** | one work interval, one rest, or one "Up Next" countdown |
 | **Pails/Rails** | one phase - stretch hold, ramp, PAILs, switch, RAILs - per exercise, per side, per round, plus the countdown before each handover |
+| **EMOM** | one interval ("minute") per exercise, per side, per round - never a countdown |
+| **AMRAP** | one movement; the last in the list scores a round |
 
 `buildStepSequence(exercises, timerMode, config)` builds the whole list up front
-for the two stepped modes. It holds structure only - round, pass, exercise,
+for the three stepped modes (`STEPPED_TIMER_MODES`: Interval, Pails/Rails, EMOM). It holds structure only - round, pass, exercise,
 side, phase - and durations are read from the live config at display time, so
 retuning a chip mid-session doesn't invalidate it. Only `rounds` changes its
 length, and because the list is round-major, adding rounds only appends.
 
 Open Work has **no step list**: a work block counts up with no set length and the
 session runs to `sessionTargetSeconds`, so how many steps it contains isn't known
-in advance. Its two phases are its steps.
+in advance. Its two phases are its steps. AMRAP has none either, for the same
+reason: how many rounds you get is the thing being measured.
 
 ### Transport: Previous / Pause-Resume / Next
 
-Three controls, the same in all three modes, on the running screen and on both
+Three controls, the same in all five modes, on the running screen and on both
 countdown screens. **There is no Skip.** It used to sit alongside these and
 overlapped with them; everything it did, Next does.
 
@@ -228,6 +285,8 @@ next phase, the next exercise, the next side, the next round:
   same as "End Set / Start Rest"; during a rest it cuts the rest short and starts
   the next set. Open Work has no final step, so Next never ends the session; the
   `sessionTargetSeconds` hard stop still does.
+- In AMRAP, Next marks the current movement done (the last one scores a round).
+  Like Open Work it never ends the session; the time cap does.
 
 **Previous** is not a plain mirror of Next, because the common case for tapping it
 is "that one again", not "the one before":
@@ -241,6 +300,8 @@ is "that one again", not "the one before":
   no earlier step that would mean anything). During a rest it restarts the rest,
   or - within the first 3 seconds - drops back into the set and **un-counts** it,
   which is the "tapped End Set by mistake" case.
+- In AMRAP, Previous is an undo: back one movement, un-scoring a round if it
+  crosses one. At 0 rounds on the first movement it does nothing.
 
 **One function moves the index.** `goToStep()` in `activeSessionStore.jsx` is
 where Next, Previous and a timer running out all land, so the round, side, phase
@@ -274,7 +335,7 @@ Shown on the Start Workout screen (which doubles as the pre-start workout previe
 this is the one screen shown "before starting" a workout), recalculated live as
 chips change:
 
-Both stepped modes are `per-step duration × total steps`, where the step count
+All three stepped modes are `per-step duration × total steps`, where the step count
 comes from `buildPasses` rather than a multiplier - so a symmetrical exercise is
 counted once, not twice:
 
@@ -284,8 +345,11 @@ totalSessionSteps(passes, rounds)  // = rounds × Σ pass.indices.length
 
 - **Interval**: `(work + rest) × steps`.
 - **Pails/Rails**: `(stretchHold + ramp + pailsHold + railsHold) × steps`.
-- **Open Work** has its own fixed `sessionTargetSeconds` instead of a computed
-  total, so no estimate is shown for it.
+- **EMOM**: `intervalSeconds × steps` - exact, since the clock never stops and
+  there are no countdown steps to leave out.
+- **Open Work** has its own fixed `sessionTargetSeconds`, and **AMRAP** its own
+  `timeCapSeconds`, instead of a computed total, so no estimate is shown for
+  either.
 
 A unilateral workout with no symmetrical exercises still comes out at exactly
 twice the bilateral figure, as it did before. One with some shows a line under
@@ -303,7 +367,7 @@ Confirming config on the Start Workout screen lands in the Tracker in a paused
 "ready" state - workout name, exercise name, and the first phase's full configured
 duration all visible, 0 elapsed - rather than immediately ticking. An explicit tap
 on a Start control (shown in place of the Pause/Resume row until then) is required
-before the first timer counts down. This applies to all three modes.
+before the first timer counts down. This applies to all five modes.
 
 ## Reordering a workout's exercises
 
@@ -447,6 +511,15 @@ lock (above) avoids the automatic case; the side button is still the side
 button.
 
 ## Known Issues / Changelog
+
+- **Added (2026-11-07)** - EMOM and AMRAP timer modes, for kettlebell work in
+  particular though offered for any workout. EMOM is a stepped mode with a single
+  phase and no transition countdowns; AMRAP is a self-paced countdown to a cap
+  with its own state, scored in rounds + movements, logging
+  `LoggedSession.roundsCompleted`. Both get the lead-in. `SESSION_SHAPE` bumped to
+  6 (the session can now carry `amrap` and two more mode configs). See "EMOM" and
+  "AMRAP" above. **Not verified on a device**; verified in Chromium under
+  Playwright's clock API, as the other modes were.
 
 - **Changed (2026-09-30)** - Removed Skip; Next/Previous now handle step
   navigation at phase level, Previous restarts if >3s elapsed. Skip overlapped

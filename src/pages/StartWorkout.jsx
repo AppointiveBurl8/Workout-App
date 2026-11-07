@@ -15,11 +15,13 @@ import {
 } from '../lib/sessionEngine'
 import { primaryButtonClass, secondaryButtonClass } from '../lib/ui'
 
-/** Total estimated session length, live as chips change - null for Open Work, which
- * runs to its own fixed session-target duration instead. */
+const STEPPED_CONFIG_KEY = { interval: 'intervalConfig', pails_rails: 'pailsRailsConfig', emom: 'emomConfig' }
+
+/** Total estimated session length, live as chips change - null for Open Work and
+ * AMRAP, which run to their own fixed target or cap instead. */
 function TotalDurationSummary({ timerMode, config, exercises }) {
-  if (timerMode === 'open_work') return null
-  const modeConfig = timerMode === 'interval' ? config.intervalConfig : config.pailsRailsConfig
+  if (!STEPPED_CONFIG_KEY[timerMode]) return null
+  const modeConfig = config[STEPPED_CONFIG_KEY[timerMode]]
   const totalSeconds = computeStepSessionDurationSeconds(timerMode, modeConfig, exercises)
   const unsided =
     sessionSideMode(timerMode, modeConfig) === 'unilateral'

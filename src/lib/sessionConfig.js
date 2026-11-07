@@ -1,4 +1,6 @@
 import {
+  DEFAULT_AMRAP_CONFIG,
+  DEFAULT_EMOM_CONFIG,
   DEFAULT_INTERVAL_CONFIG,
   DEFAULT_OPEN_WORK_CONFIG,
   DEFAULT_PAILS_RAILS_CONFIG,
@@ -16,6 +18,10 @@ export function resolveSessionConfig(template, category) {
     intervalConfig: { ...DEFAULT_INTERVAL_CONFIG, ...template?.intervalConfig },
     pailsRailsConfig: { ...DEFAULT_PAILS_RAILS_CONFIG, ...template?.pailsRailsConfig },
     openWorkConfig: { ...DEFAULT_OPEN_WORK_CONFIG, ...template?.openWorkConfig },
+    // Templates saved before EMOM/AMRAP existed have neither config; the
+    // defaults fill in here rather than through a Dexie migration.
+    emomConfig: { ...DEFAULT_EMOM_CONFIG, ...template?.emomConfig },
+    amrapConfig: { ...DEFAULT_AMRAP_CONFIG, ...template?.amrapConfig },
     sideMode: template?.sideMode ?? 'bilateral',
   }
 }

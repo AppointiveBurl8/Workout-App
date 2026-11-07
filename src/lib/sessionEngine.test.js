@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   PREV_RESTART_THRESHOLD_MS,
+  advanceAmrap,
+  formatAmrapScore,
+  initAmrapState,
+  needsTransitionCountdown,
+  retreatAmrap,
+  tickAmrapState,
   SWITCH_SECONDS,
   TRANSITION_SECONDS,
   buildPasses,
@@ -346,5 +352,82 @@ describe('the duration estimate agrees with the session it estimates', () => {
 
   it('and Open Work has no step list to build', () => {
     expect(buildStepSequence([A], 'open_work', { rounds: 1 })).toEqual([])
+  })
+})
+
+describe('EMOM', () => {
+  const EMOM = (over) => ({ intervalSeconds: 60, rounds: 2, sideMode: 'bilateral', ...over })
+
+  it('is one step per exercise per round, with no transitions', () => {
+    const steps = buildStepSequence([A, C], 'emom', EMOM())
+    expect(steps.map((s) => [s.round, s.exerciseIndex, s.kind, s.phase])).toEqual([
+      [1, 0, 'phase', 'work'],
+      [1, 1, 'phase', 'work'],
+      [2, 0, 'phase', 'work'],
+      [2, 1, 'phase', 'work'],
+    ])
+  })
+
+  it('never stops the clock for a side change', () => {
+    expect(needsTransitionCountdown('emom', 0, 1)).toBe(false)
+    const steps = buildStepSequence([A, B], 'emom', EMOM({ rounds: 1, sideMode: 'unilateral' }))
+    expect(steps.every((s) => s.kind === 'phase')).toBe(true)
+    // A left, B (symmetrical, once), A right
+    expect(steps.map((s) => [s.exerciseIndex, s.side])).toEqual([
+      [0, 'left'],
+      [1, null],
+      [0, 'right'],
+    ])
+  })
+
+  it('runs each step for the interval length', () => {
+    const [step] = buildStepSequence([A], 'emom', EMOM({ intervalSeconds: 45 }))
+    expect(stepDurationSeconds(step, 'emom', EMOM({ intervalSeconds: 45 }))).toBe(45)
+  })
+
+  it('estimates intervals x steps', () => {
+    expect(computeStepSessionDurationSeconds('emom', EMOM({ rounds: 5 }), [A, C])).toBe(600)
+    expect(
+      computeStepSessionDurationSeconds('emom', EMOM({ rounds: 1, sideMode: 'unilateral' }), [A, B]),
+    ).toBe(180)
+  })
+})
+
+describe('AMRAP', () => {
+  it('counts up to the cap and stops there', () => {
+    let s = initAmrapState()
+    for (let i = 0; i < 5; i++) s = tickAmrapState(s, { timeCapSeconds: 3 })
+    expect(s).toMatchObject({ elapsedSeconds: 3, complete: true })
+  })
+
+  it('scores a round when the last movement is done, and wraps', () => {
+    let s = initAmrapState()
+    s = advanceAmrap(s, 3)
+    s = advanceAmrap(s, 3)
+    expect(s).toMatchObject({ movementIndex: 2, roundsCompleted: 0 })
+    s = advanceAmrap(s, 3)
+    expect(s).toMatchObject({ movementIndex: 0, roundsCompleted: 1 })
+  })
+
+  it('a single-movement AMRAP scores a round per tap', () => {
+    const s = advanceAmrap(advanceAmrap(initAmrapState(), 1), 1)
+    expect(s).toMatchObject({ movementIndex: 0, roundsCompleted: 2 })
+  })
+
+  it('undo crosses back over a round boundary, and stops at zero', () => {
+    const scored = { ...initAmrapState(), roundsCompleted: 1 }
+    expect(retreatAmrap(scored, 3)).toMatchObject({ movementIndex: 2, roundsCompleted: 0 })
+    expect(retreatAmrap(initAmrapState(), 3)).toEqual(initAmrapState())
+  })
+
+  it('ignores taps once the cap is reached', () => {
+    const done = { ...initAmrapState(), complete: true }
+    expect(advanceAmrap(done, 3)).toBe(done)
+    expect(retreatAmrap(done, 3)).toBe(done)
+  })
+
+  it('formats the score as rounds + movements', () => {
+    expect(formatAmrapScore({ roundsCompleted: 1, movementIndex: 0 })).toBe('1 round')
+    expect(formatAmrapScore({ roundsCompleted: 5, movementIndex: 2 })).toBe('5 rounds + 2')
   })
 })

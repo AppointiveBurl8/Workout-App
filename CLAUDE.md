@@ -1,7 +1,7 @@
 # Workout Tracker
 
-**Last updated:** 2026-09-30 · code state describes this branch through the
-Skip-removal commit; spec accuracy re-verified at `58cff65` and the fixes that
+**Last updated:** 2026-11-07 · code state describes this branch through the
+EMOM/AMRAP commit; spec accuracy re-verified at `58cff65` and the fixes that
 followed it.
 
 Everything below was checked against `src/` on this commit. Anything not confirmed
@@ -84,17 +84,21 @@ skips it. Named `sided` and not a fourth `sideMode` on purpose — see §7.
   tags: string[],
   exerciseIds: number[],          // ordered
   archived: boolean,
-  defaultTimerMode: 'open_work'|'interval'|'pails_rails',
+  defaultTimerMode: 'open_work'|'interval'|'pails_rails'|'emom'|'amrap',
   intervalConfig:  { workSeconds, restSeconds, rounds, sideMode: 'bilateral'|'unilateral' },
   pailsRailsConfig:{ holdSeconds, rampSeconds, pailsHoldSeconds, railsHoldSeconds,
                      rounds, sideMode: 'unilateral' },   // constant, not user-editable
   openWorkConfig:  { sessionTargetSeconds, restSeconds, setsReps: SetsRepsScheme },
+  emomConfig:      { intervalSeconds, rounds, sideMode: 'bilateral'|'unilateral' },
+  amrapConfig:     { timeCapSeconds },
   sideMode: 'bilateral'|'blocked'|'alternating',         // Open Work movement-list grouping only
 }
 ```
 
 Defaults: interval 30s/15s × 5; pails/rails 15/5/20/20 × 3; open work 1200s target,
-120s rest.
+120s rest; EMOM every 60s × 5 rounds, bilateral; AMRAP 600s cap. `emomConfig` /
+`amrapConfig` are absent on templates saved before they existed — no migration;
+`resolveSessionConfig()` spreads defaults under them on read.
 
 ### SetsRepsScheme (`src/lib/setsReps.js`) — Open Work only
 
@@ -111,7 +115,8 @@ workout, never per exercise.
 
 ```js
 { id, type: 'workout'|'rest', date /* ISO */, templateId|null, category,
-  durationSeconds, setsCompleted|null /* open_work only */, rpe|null /* 1-10 */, notes }
+  durationSeconds, setsCompleted|null /* open_work only */,
+  roundsCompleted|null /* amrap only; absent on older rows */, rpe|null /* 1-10 */, notes }
 ```
 
 A **rest day** (`type: 'rest'`) has a date and optional notes and nothing else —
@@ -154,6 +159,8 @@ that on both external entry points, backup import and cloud pull, via
 | Tracker — Open Work | Done | `src/components/tracker/OpenWorkSession.jsx` |
 | Tracker — Interval | Done | `src/components/tracker/IntervalStep.jsx` + `SteppedSession.jsx` |
 | Tracker — Pails/Rails | Done | `src/components/tracker/PailsRailsStep.jsx` + `SteppedSession.jsx` |
+| Tracker — EMOM | Done, unverified on iPhone | `src/components/tracker/EmomStep.jsx` + `SteppedSession.jsx` |
+| Tracker — AMRAP (rounds + movements score, logged as `roundsCompleted`) | Done, unverified on iPhone | `src/components/tracker/AmrapSession.jsx`, `*Amrap*` in `sessionEngine.js` |
 | Step sequence + Next/Previous navigation | Done | `sessionEngine.js` (`buildStepSequence`), `goToStep()` in `activeSessionStore.jsx` |
 | Per-exercise sided flag (symmetrical movements run once) | Done | `sessionEngine.js` (`buildPasses`), `ExerciseForm.jsx` |
 | Wall-clock timing (backgrounded time recovered) | Done, unverified on iPhone | `src/lib/useWallClockTicker.js`, `TICK_N` in `activeSessionStore.jsx` |
@@ -265,6 +272,13 @@ session position reworked to `(round, passIndex, indexInPass)` (db v8) ·
 **Transport (09-30)** — Skip removed; a session became a flat list of steps and
 Next/Previous the only navigation, in all three modes.
 
+**EMOM & AMRAP (11-07)** — two new timer modes. EMOM is a stepped mode (one step
+per interval, rotating through the list, no transition countdowns — the clock
+never stops). AMRAP counts down a time cap with its own state; Done/Next marks a
+movement finished and the last one scores a round. `SESSION_SHAPE` → 6.
+`LoggedSession.roundsCompleted` added without a schema bump. See
+`specs/04-tracker.md` §EMOM / §AMRAP.
+
 ## 7. Known bugs & gaps
 
 Answers to the six explicit checks, each verified in code:
@@ -353,6 +367,8 @@ fourth one:
   It now means "honour the per-exercise flags" rather than "run everything twice".
 - `WorkoutTemplate.sideMode`: `bilateral`|`blocked`|`alternating` — only a
   *grouping label* for the Open Work movement list, unrelated to the above.
+**AMRAP ignores `sided` too**, for the same reason; **EMOM honours it** under
+`unilateral`, exactly as Interval does.
 **Open Work ignores `sided` completely** — its movement list is a static
 reference with no sequencing to skip. **Decided to stay that way** (owner
 confirmed, 2026-09-30), not an open question; see `specs/04-tracker.md`.
@@ -430,6 +446,11 @@ in the build sandbox. All four are code-complete but unproven.
   Flagged in `specs/04-tracker.md`; drop it if the duplication grates.
 - **Round → pass → exercise nesting** — settled after two corrections, then
   generalised from "side" to "pass" when `sided` landed. Treat as decided.
+- **EMOM/AMRAP rep targets** — neither has one. A single workout-wide rep number
+  would be wrong for any mixed list, and per-exercise reps are off the table (§3).
+  AMRAP stores full rounds only, not the "+ movements" remainder.
+- **EMOM/AMRAP offered for every category**, not just kettlebell. Gating on
+  category would need a fallback when a template's category changes; not worth it.
 - **Open Work and `sided`** — decided 2026-09-30: Open Work's movement list
   ignores the flag and stays as it is. Closed, not pending.
 
@@ -464,6 +485,8 @@ src/
       IntervalStep.jsx         Presentational: phase, side, round, next-up, chips
       PailsRailsStep.jsx       Presentational: phase, side, round, chips
       OpenWorkSession.jsx      Count-up work, count-down rest, set tracking, movement list
+      AmrapSession.jsx         Count-down cap, Done/undo per movement, rounds + movements score
+      EmomStep.jsx             Presentational: minute n of N, side, round, next-up, chips
       SteppedSession.jsx       Reads the step list: countdowns, Prev/Pause/Next, cues
       MuteToggle.jsx           Mute toggle; unmuting unlocks audio and beeps
       ProgressBar.jsx          Phase progress bar

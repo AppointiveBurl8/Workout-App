@@ -45,10 +45,12 @@ Work's movement list ignores the flag entirely.
   tags: string[],
   exerciseIds: number[],       // ordered
   archived: boolean,
-  defaultTimerMode: 'open_work'|'interval'|'pails_rails',
+  defaultTimerMode: 'open_work'|'interval'|'pails_rails'|'emom'|'amrap',
   intervalConfig: IntervalConfig,
   pailsRailsConfig: PailsRailsConfig,
   openWorkConfig: OpenWorkConfig,
+  emomConfig?: EmomConfig,     // absent on templates saved before EMOM - see below
+  amrapConfig?: AmrapConfig,   // same
   sideMode: 'bilateral'|'blocked'|'alternating',   // Open Work's movement-list grouping
 }
 ```
@@ -109,11 +111,36 @@ under two side labels, which it did until `Exercise.sided` existed.
 }
 ```
 
+### EmomConfig
+
+```
+{
+  intervalSeconds: number,                // length of each "minute"; default 60
+  rounds: number,                         // passes through the list; default 5
+  sideMode: 'bilateral'|'unilateral',     // as IntervalConfig; default 'bilateral'
+}
+```
+
+### AmrapConfig
+
+```
+{
+  timeCapSeconds: number,   // hard stop; default 600
+}
+```
+
+Neither config has a migration. Templates written before they existed simply
+lack the field, and `resolveSessionConfig()` in `src/lib/sessionConfig.js` -
+the one path every template takes into the editor, Start Workout and the
+Tracker - spreads the defaults under whatever is stored, as it already did for
+the other three. The first save from the Template Editor writes both. Neither is
+indexed, so there was nothing for a Dexie version bump to do.
+
 #### SetsRepsScheme
 
 Defined in `src/lib/setsReps.js`. A single, workout-wide plan - not per-exercise,
-and exclusive to Open Work: Interval and Pails/Rails already have their own
-rounds/work/rest structure, so a separate sets/reps scheme there would just be
+and exclusive to Open Work: Interval, Pails/Rails, EMOM and AMRAP already have their
+own rounds/work/rest or time-cap structure, so a separate sets/reps scheme there would just be
 redundant. Configured on the Edit Template page and the Start Workout screen
 (wherever `TimerModeConfigFields` renders the Open Work fields), never on the
 Exercise itself and never shown per-exercise.
@@ -163,6 +190,7 @@ reconciled to the current `sets` count. `top_back_off`/`ramp` don't use
   category: 'kettlebell'|'mobility'|'stretching'|null,  // null on a rest day
   durationSeconds: number,    // 0 on a rest day
   setsCompleted: number|null, // relevant for open_work sessions
+  roundsCompleted?: number|null, // full rounds reached in an AMRAP session; null/absent otherwise
   rpe: number|null,           // 1-10
   notes?: string,
 }
@@ -256,6 +284,11 @@ the session object's layout changes, and expect that cost.
 
 Schema changes are in "Migration history" above. This section records corrections
 to *this document* where it had drifted from the code.
+
+- **Added (2026-11-07)** - `WorkoutTemplate.emomConfig` / `amrapConfig`,
+  `'emom'|'amrap'` in `defaultTimerMode`, and `LoggedSession.roundsCompleted`.
+  No schema version: none are indexed, older templates get defaults on read, and
+  older log rows read a missing `roundsCompleted` as "not an AMRAP".
 
 - **Added** - `Exercise.sided` (v8), and the §IntervalConfig / §PailsRailsConfig
   prose updated for what it changes. The Pails/Rails section previously said each

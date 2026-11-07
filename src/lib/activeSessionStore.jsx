@@ -2,14 +2,18 @@ import { createContext, useContext, useEffect, useReducer, useRef, useState } fr
 import { getSetting, setSetting } from '../db'
 import {
   LEAD_IN_SECONDS,
+  advanceAmrap,
   buildStepSequence,
   endOpenWorkSet,
+  initAmrapState,
   initOpenWorkState,
+  retreatAmrap,
   resumeOpenWorkSet,
   retreatOpenWorkState,
   shouldRestartStep,
   stepCountsAsWorkoutTime,
   stepDurationSeconds,
+  tickAmrapState,
   tickOpenWorkState,
 } from './sessionEngine'
 import { useWakeLock } from './useWakeLock'
@@ -19,7 +23,7 @@ const STORAGE_KEY = 'activeSession'
 
 /** Bumped when the stored session's shape changes in a way an older mirrored
  * copy can't be read as. A mismatch is dropped rather than half-restored. */
-const SESSION_SHAPE = 5
+const SESSION_SHAPE = 6
 const PERSIST_INTERVAL_MS = 3000
 const IDLE_SESSION = { status: 'idle' }
 
@@ -34,10 +38,16 @@ function isTicking(state) {
   return state.status === 'active' && state.started && !state.paused
 }
 
+const CONFIG_KEY = {
+  interval: 'intervalConfig',
+  pails_rails: 'pailsRailsConfig',
+  emom: 'emomConfig',
+  amrap: 'amrapConfig',
+  open_work: 'openWorkConfig',
+}
+
 function configFor(timerMode, config) {
-  if (timerMode === 'interval') return config.intervalConfig
-  if (timerMode === 'pails_rails') return config.pailsRailsConfig
-  return config.openWorkConfig
+  return config[CONFIG_KEY[timerMode]]
 }
 
 // The step list is structure only, so it changes just when `rounds` or the
@@ -66,8 +76,8 @@ export function currentStep(state) {
   return sessionSteps(state)[state.stepIndex]
 }
 
-function completed(state, durationSeconds, setsCompleted = null) {
-  return { ...state, status: 'complete', completion: { durationSeconds, setsCompleted } }
+function completed(state, durationSeconds, setsCompleted = null, roundsCompleted = null) {
+  return { ...state, status: 'complete', completion: { durationSeconds, setsCompleted, roundsCompleted } }
 }
 
 /**
@@ -111,12 +121,14 @@ function reducer(state, action) {
         stepElapsedSeconds: 0,
         completion: null,
       }
-      return timerMode === 'open_work' ? { ...base, openWork: initOpenWorkState() } : base
+      if (timerMode === 'open_work') return { ...base, openWork: initOpenWorkState() }
+      if (timerMode === 'amrap') return { ...base, amrap: initAmrapState() }
+      return base
     }
 
     // The tap that actually starts the workout - nothing ticks before this.
-    // Interval and Pails/Rails open on a lead-in countdown: both begin in a held
-    // position, and you can't be in it at the same moment you tap the button.
+    // Every mode but Open Work opens on a lead-in countdown: you can't be in
+    // position, or have the bell in hand, at the same moment you tap the button.
     case 'START': {
       if (state.status !== 'active') return state
       const running = { ...state, started: true, paused: false }
@@ -165,6 +177,14 @@ function reducer(state, action) {
         return { ...state, leadInRemaining: state.leadInRemaining - 1 }
       }
 
+      if (state.timerMode === 'amrap') {
+        const amrap = tickAmrapState(state.amrap, state.config.amrapConfig)
+        if (amrap.complete) {
+          return completed({ ...state, amrap }, amrap.elapsedSeconds, null, amrap.roundsCompleted)
+        }
+        return { ...state, amrap }
+      }
+
       const step = currentStep(state)
       const total = stepDurationSeconds(step, state.timerMode, configFor(state.timerMode, state.config))
       const stepElapsedSeconds = state.stepElapsedSeconds + 1
@@ -192,6 +212,10 @@ function reducer(state, action) {
         }
       }
       if (state.leadIn) return { ...state, leadIn: false, leadInRemaining: LEAD_IN_SECONDS }
+      // AMRAP's step is a movement: Next marks it done, and the last one scores a round.
+      if (state.timerMode === 'amrap') {
+        return { ...state, amrap: advanceAmrap(state.amrap, state.exercises.length) }
+      }
       return goToStep(state, state.stepIndex + 1)
     }
 
@@ -207,6 +231,9 @@ function reducer(state, action) {
         }
       }
       if (state.leadIn) return { ...state, leadInRemaining: LEAD_IN_SECONDS }
+      if (state.timerMode === 'amrap') {
+        return { ...state, amrap: retreatAmrap(state.amrap, state.exercises.length) }
+      }
       const restart = shouldRestartStep(state.stepElapsedSeconds)
       return goToStep(state, restart ? state.stepIndex : state.stepIndex - 1)
     }
@@ -217,13 +244,13 @@ function reducer(state, action) {
     // the step list, and cutting it below where we are has to land somewhere.
     case 'ADJUST_CONFIG': {
       if (state.status !== 'active' || state.timerMode === 'open_work') return state
-      const modeKey = state.timerMode === 'interval' ? 'intervalConfig' : 'pailsRailsConfig'
+      const modeKey = CONFIG_KEY[state.timerMode]
       const { field, value } = action
       const next = {
         ...state,
         config: { ...state.config, [modeKey]: { ...state.config[modeKey], [field]: value } },
       }
-      if (field !== 'rounds') return next
+      if (field !== 'rounds' || state.timerMode === 'amrap') return next
       const steps = sessionSteps(next)
       if (next.stepIndex < steps.length) return next
       return { ...next, stepIndex: steps.length - 1, stepElapsedSeconds: 0 }
@@ -254,10 +281,13 @@ function reducer(state, action) {
 
     case 'END_WORKOUT': {
       if (state.status !== 'active') return state
-      const durationSeconds =
-        state.timerMode === 'open_work' ? state.openWork.sessionElapsedSeconds : state.sessionElapsedSeconds
-      const setsCompleted = state.timerMode === 'open_work' ? state.openWork.setsCompleted : null
-      return { ...state, status: 'complete', completion: { durationSeconds, setsCompleted } }
+      if (state.timerMode === 'open_work') {
+        return completed(state, state.openWork.sessionElapsedSeconds, state.openWork.setsCompleted)
+      }
+      if (state.timerMode === 'amrap') {
+        return completed(state, state.amrap.elapsedSeconds, null, state.amrap.roundsCompleted)
+      }
+      return completed(state, state.sessionElapsedSeconds)
     }
 
     case 'CLEAR':

@@ -52,10 +52,21 @@ export const PAILS_RAILS_PHASE_COLORS = {
   rails: { label: 'text-red-600 dark:text-red-400', bar: 'bg-red-600' },
 }
 
+/** EMOM has one phase: the minute. Rest is whatever's left of it after the reps. */
+export const EMOM_PHASE_LABELS = { work: 'Every Minute' }
+
+export const EMOM_PHASE_COLORS = {
+  work: { label: 'text-orange-600 dark:text-orange-400', bar: 'bg-orange-500' },
+}
+
+/** The modes built from a step list. Open Work and AMRAP keep their own state. */
+export const STEPPED_TIMER_MODES = ['interval', 'pails_rails', 'emom']
+
 /** The phases one exercise runs through, in order, per mode. */
 export const PHASE_SEQUENCE = {
   interval: ['work', 'rest'],
   pails_rails: ['stretch', 'ramp', 'pails', 'switch', 'rails'],
+  emom: ['work'],
 }
 
 /** Which config duration each phase counts down. `switch` is a fixed cue, not configurable. */
@@ -67,14 +78,26 @@ const PHASE_CONFIG_FIELD = {
     pails: 'pailsHoldSeconds',
     rails: 'railsHoldSeconds',
   },
+  emom: { work: 'intervalSeconds' },
+}
+
+const PHASE_LABELS = {
+  interval: INTERVAL_PHASE_LABELS,
+  pails_rails: PAILS_RAILS_PHASE_LABELS,
+  emom: EMOM_PHASE_LABELS,
+}
+const PHASE_COLORS = {
+  interval: INTERVAL_PHASE_COLORS,
+  pails_rails: PAILS_RAILS_PHASE_COLORS,
+  emom: EMOM_PHASE_COLORS,
 }
 
 export function stepPhaseLabel(timerMode, phase) {
-  return timerMode === 'interval' ? INTERVAL_PHASE_LABELS[phase] : PAILS_RAILS_PHASE_LABELS[phase]
+  return PHASE_LABELS[timerMode]?.[phase]
 }
 
 export function stepPhaseColors(timerMode, phase) {
-  return timerMode === 'interval' ? INTERVAL_PHASE_COLORS[phase] : PAILS_RAILS_PHASE_COLORS[phase]
+  return PHASE_COLORS[timerMode]?.[phase]
 }
 
 // ---------------- Passes: which side runs which exercises ----------------
@@ -92,7 +115,7 @@ export function stepPhaseColors(timerMode, phase) {
  */
 export function isUnilateral(timerMode, config) {
   if (timerMode === 'pails_rails') return true
-  if (timerMode === 'interval') return config.sideMode === 'unilateral'
+  if (timerMode === 'interval' || timerMode === 'emom') return config.sideMode === 'unilateral'
   return false
 }
 
@@ -133,13 +156,16 @@ export function totalSessionSteps(passes, rounds) {
 export const SIDE_LABELS = { left: 'Left side', right: 'Right side' }
 
 /**
- * Whether a handover needs its own countdown screen. Interval ends every exercise
+ * Whether a handover needs its own countdown screen. EMOM never does: the clock
+ * never stops, and whatever's left of the minute after the reps - side change
+ * included - is the gap. Interval ends every exercise
  * on its configured Rest, which already _is_ the gap between movements - putting a
  * countdown after it would just be resting twice over. Pails/Rails ends on a hold
  * with nothing after it, so it needs one. Crossing a pass boundary always gets
  * one either way: that's a physical reposition, not a rest.
  */
 export function needsTransitionCountdown(timerMode, fromPassIndex, toPassIndex) {
+  if (timerMode === 'emom') return false
   if (fromPassIndex !== toPassIndex) return true
   return timerMode !== 'interval'
 }
@@ -227,9 +253,10 @@ export function shouldRestartStep(stepElapsedSeconds) {
  * once, and the estimate has to agree with the run or one of them is lying.
  */
 export function computeStepSessionDurationSeconds(timerMode, config, exercises) {
-  if (timerMode !== 'interval' && timerMode !== 'pails_rails') return null
+  if (!STEPPED_TIMER_MODES.includes(timerMode)) return null
   const passes = buildPasses(exercises, sessionSideMode(timerMode, config))
   const steps = totalSessionSteps(passes, config.rounds)
+  if (timerMode === 'emom') return config.intervalSeconds * steps
   if (timerMode === 'interval') {
     return (config.workSeconds + config.restSeconds) * steps
   }
@@ -298,4 +325,50 @@ export function retreatOpenWorkState(state, restSeconds) {
     restRemainingSeconds: 0,
     setsCompleted: Math.max(0, state.setsCompleted - 1),
   }
+}
+
+// ---------------- AMRAP ----------------
+
+/**
+ * As many rounds as possible under a time cap. The clock counts down to the cap
+ * and the work is self-paced, so there is no step list: the position is which
+ * movement you're on and how many full rounds are behind you. Next marks the
+ * current movement done; finishing the last one in the list scores a round and
+ * wraps to the first. That gives the conventional "rounds + movements" score
+ * without asking for a tap per rep.
+ */
+export function initAmrapState() {
+  return { elapsedSeconds: 0, movementIndex: 0, roundsCompleted: 0, complete: false }
+}
+
+export function tickAmrapState(state, config) {
+  if (state.complete) return state
+  const elapsedSeconds = state.elapsedSeconds + 1
+  if (elapsedSeconds >= config.timeCapSeconds) {
+    return { ...state, elapsedSeconds: config.timeCapSeconds, complete: true }
+  }
+  return { ...state, elapsedSeconds }
+}
+
+export function advanceAmrap(state, movementCount) {
+  if (state.complete || movementCount <= 0) return state
+  const movementIndex = state.movementIndex + 1
+  if (movementIndex >= movementCount) {
+    return { ...state, movementIndex: 0, roundsCompleted: state.roundsCompleted + 1 }
+  }
+  return { ...state, movementIndex }
+}
+
+/** Undo for a mis-tap: steps back a movement, un-scoring the round if it crosses one. */
+export function retreatAmrap(state, movementCount) {
+  if (state.complete || movementCount <= 0) return state
+  if (state.movementIndex > 0) return { ...state, movementIndex: state.movementIndex - 1 }
+  if (state.roundsCompleted === 0) return state
+  return { ...state, movementIndex: movementCount - 1, roundsCompleted: state.roundsCompleted - 1 }
+}
+
+/** "5 + 2": full rounds, plus movements into the next. */
+export function formatAmrapScore(state) {
+  const rounds = `${state.roundsCompleted} round${state.roundsCompleted === 1 ? '' : 's'}`
+  return state.movementIndex > 0 ? `${rounds} + ${state.movementIndex}` : rounds
 }
